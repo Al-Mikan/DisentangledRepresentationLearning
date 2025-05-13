@@ -4,7 +4,14 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import LabelEncoder
 
 vecs = json.load(open('video_vectors.json'))
-df   = pd.read_csv('labels.csv')
+df   = pd.read_csv('filtered_labels.csv')
+
+df['video_path'] = df['video_path'].str.replace('\\', '/')
+
+# JSONに存在する動画パスだけにフィルタ
+df = df[df['video_path'].apply(lambda p: p in vecs)]
+
+print(f"✅ 使用可能なサンプル数: {len(df)} 件")
 
 # ラベルエンコード
 le_act  = LabelEncoder().fit(df['action'])
@@ -15,7 +22,7 @@ df['sp_id']  = le_sp.transform(df['species'])
 class VecDataset(Dataset):
     def __getitem__(self, idx):
         row = df.iloc[idx]
-        x = torch.tensor(vecs[os.path.join('data_root', row['video_path'])])
+        x = torch.tensor(vecs[row['video_path']]).float()
         return x, row['act_id'], row['sp_id']
     def __len__(self): return len(df)
 
