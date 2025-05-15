@@ -1,58 +1,46 @@
-import os
+import pandas as pd
+import ast
 import csv
+import os
+from collections import Counter
 
-data_root = "AnimalKingdomDataset"  # 動画フォルダのルート
-csv_path = "labels.csv"  # 出力CSVファイル
-species_info_path = "Animal.csv"  # 種とParent Classの対応表
+# パス設定
+csv_input_path = "AR_metadata.csv"
+csv_output_path = "labels.csv"
+video_dir = "video"  # 動画が平置きされているディレクトリ
 
-# ------------------------------
-# 対応表CSVの読み込み (species → parent class)
-# ------------------------------
-species_to_parent = {}
+df = pd.read_csv(csv_input_path)
 
-with open(species_info_path, newline='', encoding='utf-8') as f:
-    reader = csv.DictReader(f)
-    for row in reader:
-        species = row["Animal"].strip().lower().replace("'", "")  # ← ' を除去
-        parent_class = row["Parent Class"].strip()
-        species_to_parent[species] = parent_class
+# 一時的にすべての条件を満たす行を収集
+temp_rows = []
 
-# ------------------------------
-# データ収集
-# ------------------------------
-rows = []
-unknown_species = set()
+for _, row in df.iterrows():
+    video_id = row["video_id"]
+    video_path = os.path.join(video_dir, f"{video_id}.mp4")
 
-for action in os.listdir(data_root):
-    action_path = os.path.join(data_root, action)
-    if not os.path.isdir(action_path): continue
+    try:
+        actions = ast.literal_eval(row["list_animal_action"])
+        parent_classes = ast.literal_eval(row["list_animal_parent_class"])
+    except Exception as e:
+        print(f"⚠️ パースエラー: {video_id}")
+        continue
 
-    for species in os.listdir(action_path):
-        species_path = os.path.join(action_path, species)
-        if not os.path.isdir(species_path): continue
+    if len(actions) == 1 and len(parent_classes) == 1 and parent_classes[0].lower() == "mammal":
+        species, action = actions[0]
+        parent_class = parent_classes[0]
+        temp_rows.append([video_path, action, species, parent_class])
 
-        for fname in os.listdir(species_path):
-            if fname.endswith(".mp4"):
-                relative_path = os.path.join(data_root, action, species, fname)
-                parent_class = species_to_parent.get(species.lower(), "Unknown")
-                if parent_class == "Unknown":
-                    unknown_species.add(species)
-                rows.append([relative_path, action, species, parent_class])
+# 行動（action）の出現回数をカウント
+action_counter = Counter([row[1] for row in temp_rows])
+valid_actions = {action for action, count in action_counter.items() if count >= 100}
 
-# ------------------------------
-# CSV 書き出し
-# ------------------------------
-with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+# 条件に合うものだけ抽出
+final_rows = [row for row in temp_rows if row[1] in valid_actions]
+
+# 書き出し
+with open(csv_output_path, "w", newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
-    writer.writerow(['video_path', 'action', 'species', 'parent_class'])
-    writer.writerows(rows)
+    writer.writerow(["video_path", "action", "species", "parent_class"])
+    writer.writerows(final_rows)
 
-print(f"✅ labels.csv を {len(rows)} 件で作成しました。")
-
-# ------------------------------
-# 未知の種を警告
-# ------------------------------
-if unknown_species:
-    print("\n⚠️ 以下の種は species_info.csv に見つかりませんでした：")
-    for s in sorted(unknown_species):
-        print(f"  - {s}")
+print(f"✅ labels.csv を {len(final_rows)} 件で作成しました（mammal かつ 1ラベル かつ action出現数100以上）。")
