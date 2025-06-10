@@ -1,94 +1,121 @@
+import os
+import json
 import torch
-import torch.nn as nn
-from sklearn.manifold import TSNE
+import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
-import json, pandas as pd, numpy as np
-from torch.utils.data import Dataset, DataLoader
+from model import DisentangleNet, DisentangleNet2
+from sklearn.manifold import TSNE
 from sklearn.preprocessing import LabelEncoder
+from sklearn.cluster import KMeans
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
-# --- モデル定義 ---
-D, H = 768, 256
-class DisentangleNet(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.sp_embed     = nn.Linear(D, H, bias=False)
-        self.act_embed    = nn.Linear(D, H, bias=False)
+MODES = ["simple", "adaptive3d", "adaptive1d"]
+LOSSES = ["triplet"]
+USE_TEST = True
 
-    def forward(self, z):
-        a_vec = self.act_embed(z)
-        s_vec = self.sp_embed(z)
-        return a_vec, s_vec
-
-# --- モデル読み込み ---
-net = DisentangleNet().cuda()
-net.load_state_dict(torch.load("disentangled_triplet.pth"))
-net.eval()
-
-# --- データ読み込み ---
-vecs = json.load(open('exec/video_vectors.json'))
+# --- ラベル読み込み ---
 df = pd.read_csv('labels.csv')
+df_test = pd.read_csv('labels_test.csv')
 df['video_path'] = df['video_path'].str.replace('\\', '/')
-df = df[df['video_path'].apply(lambda p: p in vecs)]
+df_test['video_path'] = df_test['video_path'].str.replace('\\', '/')
+if USE_TEST:
+    df = pd.concat([df, df_test], ignore_index=True)
 
+# --- ラベルエンコード ---
 le_act = LabelEncoder().fit(df['action'])
 le_sp  = LabelEncoder().fit(df['species'])
 df['act_id'] = le_act.transform(df['action'])
 df['sp_id']  = le_sp.transform(df['species'])
 
-# --- Dataset / DataLoader ---
-class VecDataset(Dataset):
-    def __getitem__(self, idx):
-        row = df.iloc[idx]
-        x = torch.tensor(vecs[row['video_path']]).float()
-        return x, row['act_id'], row['sp_id']
-    def __len__(self): return len(df)
+A = len(le_act.classes_)
+S = len(le_sp.classes_)
 
-loader = DataLoader(VecDataset(), batch_size=64, shuffle=False)
+# --- 埋め込み抽出関数 ---
+def get_embeddings(vecs_dict, df, model):
+    a_vecs, s_vecs, a_labels, s_labels = [], [], [], []
+    with torch.no_grad():
+        for _, row in df.iterrows():
+            path = row['video_path']
+            if path not in vecs_dict:
+                continue
+            z = torch.tensor(vecs_dict[path]).unsqueeze(0).float().cuda()
+            a_vec, s_vec = model(z)
+            a_vecs.append(a_vec.squeeze(0).cpu())
+            s_vecs.append(s_vec.squeeze(0).cpu())
+            a_labels.append(row['act_id'])
+            s_labels.append(row['sp_id'])
+    return torch.stack(a_vecs), torch.stack(s_vecs), a_labels, s_labels
 
-# --- ベクトル抽出 ---
-a_vecs, s_vecs, a_labels, s_labels = [], [], [], []
-with torch.no_grad():
-    for z, a, s in loader:
-        z = z.cuda()
-        a_vec, s_vec = net(z)
-        a_vecs.append(a_vec.cpu())
-        s_vecs.append(s_vec.cpu())
-        a_labels += a.tolist()
-        s_labels += s.tolist()
+# --- 評価関数 ---
+def evaluate_clustering(vecs, true_labels, name=""):
+    n_clusters = len(np.unique(true_labels))
+    preds = KMeans(n_clusters=n_clusters, random_state=0).fit_predict(vecs)
+    ari = adjusted_rand_score(true_labels, preds)
+    nmi = normalized_mutual_info_score(true_labels, preds)
+    print(f"\n📊 {name} のクラスタリング評価")
+    print(f"  🔹 ARI  : {ari:.4f}")
+    print(f"  🔹 NMI  : {nmi:.4f}")
 
-a_vecs = torch.cat(a_vecs).numpy()
-s_vecs = torch.cat(s_vecs).numpy()
+# --- 可視化関数 ---
+def plot_embedding(ax, proj, labels, label_encoder, title):
+    ax.set_title(title)
+    unique_labels = np.unique(labels)
+    cmap = plt.get_cmap('tab20')
+    for i, label in enumerate(unique_labels):
+        idx = np.array(labels) == label
+        label_name = label_encoder.inverse_transform([label])[0]
+        ax.scatter(proj[idx, 0], proj[idx, 1], s=5, color=cmap(i % 20), label=label_name)
+    ax.legend(fontsize=6, markerscale=3)
 
-# --- t-SNE ---
-a_proj = TSNE(n_components=2, random_state=0, perplexity=30).fit_transform(a_vecs)
-s_proj = TSNE(n_components=2, random_state=0, perplexity=30).fit_transform(s_vecs)
+# --- 結果ディレクトリ作成 ---
+os.makedirs("result", exist_ok=True)
 
-# --- プロット ---
-plt.figure(figsize=(14, 6))
+# --- 全パターンループ ---
+for mode in MODES:
+    for loss in LOSSES:
+        print(f"\n=== 処理中: mode={mode}, loss={loss} ===")
 
-# 行動ベクトル（a_vec）
-plt.subplot(1, 2, 1)
-plt.title("Action Embedding")
-unique_a = np.unique(a_labels)
-cmap = plt.get_cmap('tab20')
-colors = [cmap(i % 20) for i in range(len(unique_a))]
-for i, label in enumerate(unique_a):
-    idx = np.array(a_labels) == label
-    label_name = le_act.inverse_transform([label])[0]
-    plt.scatter(a_proj[idx, 0], a_proj[idx, 1], color=colors[i], s=5, label=label_name)
-plt.legend(fontsize=6, markerscale=3, loc='best')
+        # ベクトル読み込み
+        vec_path = f'exec/vectors_{mode}.json'
+        vec_test_path = f'exec/vectors_{mode}_test.json'
+        with open(vec_path) as f:
+            vecs = json.load(f)
+        if USE_TEST:
+            with open(vec_test_path) as f:
+                vecs_test = json.load(f)
+            vecs.update(vecs_test)
 
-# 種ベクトル（s_vec）
-plt.subplot(1, 2, 2)
-plt.title("Species Embedding")
-unique_s = np.unique(s_labels)
-colors = [cmap(i % 20) for i in range(len(unique_s))]
-for i, label in enumerate(unique_s):
-    idx = np.array(s_labels) == label
-    label_name = le_sp.inverse_transform([label])[0]
-    plt.scatter(s_proj[idx, 0], s_proj[idx, 1], color=colors[i], s=5, label=label_name)
-# plt.legend(fontsize=6, markerscale=3, loc='best')
+        # モデル読み込み
+        model_path = f'disentangled_{mode}_{loss}.pth'
+        if loss == "triplet":
+            net = DisentangleNet(D=768, H=256).cuda()
+        else:
+            net = DisentangleNet2(D=768, H=256, A=A, S=S).cuda()
+        
+        net.load_state_dict(torch.load(model_path))
+        net.eval()
 
-plt.tight_layout()
-plt.savefig("result/embedding.png", bbox_inches='tight')
-plt.show()
+        # 有効データのみフィルタ
+        df_valid = df[df['video_path'].apply(lambda p: p in vecs)]
+
+        # 埋め込み取得
+        a_vecs, s_vecs, a_labels, s_labels = get_embeddings(vecs, df_valid, net)
+
+        # 評価
+        evaluate_clustering(a_vecs, a_labels, f"{mode}/{loss} - Action")
+        evaluate_clustering(s_vecs, s_labels, f"{mode}/{loss} - Species")
+
+        # t-SNE
+        a_proj = TSNE(n_components=2, random_state=0, perplexity=30).fit_transform(a_vecs)
+        s_proj = TSNE(n_components=2, random_state=0, perplexity=30).fit_transform(s_vecs)
+
+        # 描画と保存
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+        plot_embedding(ax1, a_proj, a_labels, le_act, "Action Embedding")
+        plot_embedding(ax2, s_proj, s_labels, le_sp, "Species Embedding")
+        plt.tight_layout()
+        save_path = f"result/{mode}_{loss}.png"
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close()
+        print(f"📷 保存しました → {save_path}")
