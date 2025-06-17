@@ -59,3 +59,213 @@ video_path,action,species,parent_class
 ./test_video/clip_059.mp4,walking_polar,Polar Bear,mammal
 ./test_video/clip_060.mp4,walking_polar,Polar Bear,mammal
 ./test_video/clip_061.mp4,walking_polar,Polar Bear,mammal
+./test_video/clip_062.mp4,swimming,Polar Bear,mammal
+./test_video/clip_063.mp4,swimming,Polar Bear,mammal
+./test_video/clip_064.mp4,swimming,Polar Bear,mammal
+./test_video/clip_065.mp4,swimming,Polar Bear,mammal
+./test_video/clip_066.mp4,swimming,Polar Bear,mammal
+./test_video/clip_067.mp4,swimming,Polar Bear,mammal
+./test_video/clip_068.mp4,swimming,Polar Bear,mammal
+./test_video/clip_069.mp4,swimming,Polar Bear,mammal
+./test_video/clip_070.mp4,swimming,Polar Bear,mammal
+./test_video/clip_071.mp4,swimming,Polar Bear,mammal
+./test_video/clip_072.mp4,swimming,Polar Bear,mammal
+./test_video/clip_073.mp4,swimming,Polar Bear,mammal
+./test_video/clip_074.mp4,swimming,Polar Bear,mammal
+./test_video/clip_075.mp4,swimming,Polar Bear,mammal
+./test_video/clip_076.mp4,swimming,Polar Bear,mammal
+./test_video/clip_077.mp4,swimming,Polar Bear,mammal
+./test_video/clip_078.mp4,swimming,Polar Bear,mammal
+./test_video/clip_079.mp4,swimming,Polar Bear,mammal
+./test_video/clip_080.mp4,swimming,Polar Bear,mammal
+./test_video/clip_081.mp4,swimming,Polar Bear,mammal
+./test_video/clip_082.mp4,swimming,Polar Bear,mammal
+./test_video/clip_083.mp4,swimming,Polar Bear,mammal
+./test_video/clip_084.mp4,swimming,Polar Bear,mammal
+./test_video/clip_085.mp4,swimming,Polar Bear,mammal
+./test_video/clip_086.mp4,swimming,Polar Bear,mammal
+./test_video/clip_087.mp4,swimming,Polar Bear,mammal
+./test_video/clip_088.mp4,swimming,Polar Bear,mammal
+./test_video/clip_089.mp4,swimming,Polar Bear,mammal
+./test_video/clip_090.mp4,swimming,Polar Bear,mammal
+./test_video/clip_091.mp4,swimming,Polar Bear,mammal
+./test_video/clip_092.mp4,swimming,Polar Bear,mammal
+./test_video/clip_093.mp4,swimming,Polar Bear,mammal
+./test_video/clip_094.mp4,swimming,Polar Bear,mammal
+./test_video/clip_095.mp4,swimming,Polar Bear,mammal
+./test_video/clip_096.mp4,swimming,Polar Bear,mammal
+./test_video/clip_097.mp4,swimming,Polar Bear,mammal
+./test_video/clip_098.mp4,swimming,Polar Bear,mammal
+./test_video/clip_099.mp4,swimming,Polar Bear,mammal
+./test_video/clip_100.mp4,swimming,Polar Bear,mammal
+./test_video/clip_101.mp4,swimming,Polar Bear,mammal
+./test_video/clip_102.mp4,sitting,Polar Bear,mammal
+./test_video/clip_103.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_104.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_105.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_106.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_107.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_108.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_109.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_110.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_111.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_112.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_113.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_114.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_115.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_116.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_117.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_118.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_119.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_120.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_121.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_122.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_123.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_124.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_125.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_126.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_127.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_128.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_129.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_130.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_168.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_169.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_170.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_171.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_172.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_173.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_174.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_175.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_176.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_177.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_178.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_179.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_180.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_181.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_182.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_183.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_184.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_185.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_186.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_187.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_188.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_189.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_190.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_191.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_192.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_193.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_194.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_195.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_196.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_197.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_198.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_199.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_200.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_201.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_202.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_203.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_204.mp4,stereotypic behavior,Polar Bear,mammal
+./test_video/clip_205.mp4,swimming,Polar Bear,mammal
+./test_video/clip_206.mp4,swimming,Polar Bear,mammal
+./test_video/clip_207.mp4,swimming,Polar Bear,mammal
+./test_video/clip_208.mp4,swimming,Polar Bear,mammal
+./test_video/clip_209.mp4,swimming,Polar Bear,mammal
+./test_video/clip_210.mp4,swimming,Polar Bear,mammal
+./test_video/clip_211.mp4,swimming,Polar Bear,mammal
+./test_video/clip_212.mp4,swimming,Polar Bear,mammal
+./test_video/clip_213.mp4,swimming,Polar Bear,mammal
+./test_video/clip_214.mp4,swimming,Polar Bear,mammal
+./test_video/clip_215.mp4,swimming,Polar Bear,mammal
+./test_video/clip_216.mp4,swimming,Polar Bear,mammal
+./test_video/clip_217.mp4,swimming,Polar Bear,mammal
+./test_video/clip_218.mp4,swimming,Polar Bear,mammal
+./test_video/clip_219.mp4,swimming,Polar Bear,mammal
+./test_video/clip_220.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_221.mp4,keeping still,Polar Bear,mammal
+./test_video/clip_222.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_223.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_224.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_225.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_226.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_227.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_228.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_229.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_230.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_231.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_232.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_233.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_234.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_235.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_236.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_237.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_238.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_239.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_240.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_241.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_242.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_243.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_244.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_245.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_246.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_247.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_248.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_249.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_250.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_251.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_252.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_253.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_254.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_255.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_256.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_257.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_258.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_259.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_260.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_261.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_262.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_263.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_264.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_265.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_266.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_267.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_268.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_269.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_270.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_271.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_272.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_273.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_274.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_275.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_276.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_277.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_278.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_279.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_280.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_281.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_282.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_283.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_284.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_285.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_286.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_287.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_288.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_289.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_290.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_291.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_292.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_293.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_294.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_295.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_296.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_297.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_298.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_299.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_300.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_301.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_302.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_303.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_304.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_305.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_306.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_307.mp4,sleeping,Polar Bear,mammal
+./test_video/clip_308.mp4,sleeping,Polar Bear,mammal

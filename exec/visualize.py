@@ -10,9 +10,14 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import KMeans
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
-MODES = ["simple", "adaptive3d", "adaptive1d"]
-LOSSES = ["triplet"]
+MODES = ["simple", "adaptive3d", "adaptive1d","sliding"]
+LOSSES = ["triplet", "improved"]
 USE_TEST = True
+
+
+# --- 可視化対象のラベルを限定する（None の場合は全ラベル表示）
+VISIBLE_ACTIONS = None  # 例: ["walking", "eating"]
+VISIBLE_SPECIES = None  # 例: ["polar bear", "zebra"]
 
 # --- ラベル読み込み ---
 df = pd.read_csv('labels.csv')
@@ -48,17 +53,27 @@ def get_embeddings(vecs_dict, df, model):
     return torch.stack(a_vecs), torch.stack(s_vecs), a_labels, s_labels
 
 # --- 評価関数 ---
-def evaluate_clustering(vecs, true_labels, name=""):
+def evaluate_clustering(vecs, true_labels, name="",metric_file=None):
     n_clusters = len(np.unique(true_labels))
-    preds = KMeans(n_clusters=n_clusters, random_state=0).fit_predict(vecs)
+
+    # ✅ KMeans++ 初期化を明示
+    preds = KMeans(n_clusters=n_clusters, init='k-means++', random_state=0).fit_predict(vecs)
+    # preds = KMeans(n_clusters=n_clusters, random_state=0).fit_predict(vecs)
     ari = adjusted_rand_score(true_labels, preds)
     nmi = normalized_mutual_info_score(true_labels, preds)
     print(f"\n📊 {name} のクラスタリング評価")
     print(f"  🔹 ARI  : {ari:.4f}")
     print(f"  🔹 NMI  : {nmi:.4f}")
 
+    # テキストファイルにも保存
+    if metric_file:
+        with open(metric_file, 'a') as f:
+            f.write(f"{name}\n")
+            f.write(f"  ARI = {ari:.4f}\n")
+            f.write(f"  NMI = {nmi:.4f}\n\n")
+
 # --- 可視化関数 ---
-def plot_embedding(ax, proj, labels, label_encoder, title):
+def plot_embedding(ax, proj, labels, label_encoder, title, show_legend=True):
     ax.set_title(title)
     unique_labels = np.unique(labels)
     cmap = plt.get_cmap('tab20')
@@ -66,10 +81,16 @@ def plot_embedding(ax, proj, labels, label_encoder, title):
         idx = np.array(labels) == label
         label_name = label_encoder.inverse_transform([label])[0]
         ax.scatter(proj[idx, 0], proj[idx, 1], s=5, color=cmap(i % 20), label=label_name)
-    ax.legend(fontsize=6, markerscale=3)
+    if show_legend:
+        ax.legend(fontsize=6, markerscale=3)
 
 # --- 結果ディレクトリ作成 ---
-os.makedirs("result", exist_ok=True)
+metric_file = "result/metrics.txt"
+if os.path.exists(metric_file):
+    os.remove(metric_file) 
+
+os.makedirs("result/action", exist_ok=True)
+os.makedirs("result/species", exist_ok=True)
 
 # --- 全パターンループ ---
 for mode in MODES:
@@ -87,11 +108,11 @@ for mode in MODES:
             vecs.update(vecs_test)
 
         # モデル読み込み
-        model_path = f'disentangled_{mode}_{loss}.pth'
-        if loss == "triplet":
-            net = DisentangleNet(D=768, H=256).cuda()
-        else:
+        model_path = f'./model/disentangled_{mode}_{loss}.pth'
+        if loss == "cross":
             net = DisentangleNet2(D=768, H=256, A=A, S=S).cuda()
+        else:
+            net = DisentangleNet(D=768, H=256).cuda()
         
         net.load_state_dict(torch.load(model_path))
         net.eval()
@@ -99,23 +120,35 @@ for mode in MODES:
         # 有効データのみフィルタ
         df_valid = df[df['video_path'].apply(lambda p: p in vecs)]
 
+        # 可視化対象の action / species があればさらにフィルタ
+        if VISIBLE_ACTIONS is not None:
+            df_valid = df_valid[df_valid['action'].isin(VISIBLE_ACTIONS)]
+        if VISIBLE_SPECIES is not None:
+            df_valid = df_valid[df_valid['species'].isin(VISIBLE_SPECIES)]
+
         # 埋め込み取得
         a_vecs, s_vecs, a_labels, s_labels = get_embeddings(vecs, df_valid, net)
 
         # 評価
-        evaluate_clustering(a_vecs, a_labels, f"{mode}/{loss} - Action")
-        evaluate_clustering(s_vecs, s_labels, f"{mode}/{loss} - Species")
+        evaluate_clustering(a_vecs, a_labels, f"{mode}/{loss} - Action", metric_file)
+        evaluate_clustering(s_vecs, s_labels, f"{mode}/{loss} - Species", metric_file)
 
         # t-SNE
         a_proj = TSNE(n_components=2, random_state=0, perplexity=30).fit_transform(a_vecs)
         s_proj = TSNE(n_components=2, random_state=0, perplexity=30).fit_transform(s_vecs)
 
-        # 描画と保存
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-        plot_embedding(ax1, a_proj, a_labels, le_act, "Action Embedding")
-        plot_embedding(ax2, s_proj, s_labels, le_sp, "Species Embedding")
-        plt.tight_layout()
-        save_path = f"result/{mode}_{loss}.png"
-        plt.savefig(save_path, bbox_inches='tight')
+        # 描画と保存（フォルダ分けて）
+        fig1, ax1 = plt.subplots(figsize=(7, 6))
+        plot_embedding(ax1, a_proj, a_labels, le_act, "Action Embedding", show_legend=True)
+        save_path1 = f"result/action/{mode}_{loss}.png"
+        plt.savefig(save_path1, bbox_inches='tight')
         plt.close()
-        print(f"📷 保存しました → {save_path}")
+
+        fig2, ax2 = plt.subplots(figsize=(7, 6))
+        plot_embedding(ax2, s_proj, s_labels, le_sp, "Species Embedding", show_legend=False)
+        save_path2 = f"result/species/{mode}_{loss}.png"
+        plt.savefig(save_path2, bbox_inches='tight')
+        plt.close()
+
+        print(f"📷 Action 結果 → {save_path1}")
+        print(f"📷 Species 結果 → {save_path2}")

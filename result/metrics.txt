@@ -1,0 +1,64 @@
+simple/triplet - Action
+  ARI = 0.4543
+  NMI = 0.6098
+
+simple/triplet - Species
+  ARI = 0.2465
+  NMI = 0.7728
+
+simple/improved - Action
+  ARI = 0.3138
+  NMI = 0.4623
+
+simple/improved - Species
+  ARI = 0.2854
+  NMI = 0.7737
+
+adaptive3d/triplet - Action
+  ARI = 0.4370
+  NMI = 0.6275
+
+adaptive3d/triplet - Species
+  ARI = 0.2534
+  NMI = 0.7874
+
+adaptive3d/improved - Action
+  ARI = 0.2869
+  NMI = 0.4590
+
+adaptive3d/improved - Species
+  ARI = 0.2845
+  NMI = 0.7648
+
+adaptive1d/triplet - Action
+  ARI = 0.3471
+  NMI = 0.5452
+
+adaptive1d/triplet - Species
+  ARI = 0.2317
+  NMI = 0.7476
+
+adaptive1d/improved - Action
+  ARI = 0.3104
+  NMI = 0.4807
+
+adaptive1d/improved - Species
+  ARI = 0.2459
+  NMI = 0.7579
+
+sliding/triplet - Action
+  ARI = 0.3813
+  NMI = 0.5613
+
+sliding/triplet - Species
+  ARI = 0.2458
+  NMI = 0.7531
+
+sliding/improved - Action
+  ARI = 0.3346
+  NMI = 0.5049
+
+sliding/improved - Species
+  ARI = 0.2889
+  NMI = 0.7818
+
