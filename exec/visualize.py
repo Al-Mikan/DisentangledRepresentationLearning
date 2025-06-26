@@ -23,9 +23,7 @@ USE_UCF = True
 VISIBLE_ACTIONS = None
 VISIBLE_SPECIES = None
 TEST_ONLY = True
-INTERACTIVE = True
 
-VISUALIZE = ["umap", "tsne"]
 
 # --- ラベル読み込み ---
 df = pd.read_csv('labels.csv')
@@ -135,10 +133,8 @@ def interactive_plot_embedding(proj, labels, label_encoder, paths, title):
 
 # --- 結果ディレクトリ作成 ---
 metric_file = "result/metrics.txt"
-
-for method in VISUALIZE:
-    os.makedirs(f"result_{method}/action", exist_ok=True)
-    os.makedirs(f"result_{method}/species", exist_ok=True)
+os.makedirs("result/action", exist_ok=True)
+os.makedirs("result/species", exist_ok=True)
 if os.path.exists(metric_file):
     os.remove(metric_file)
 
