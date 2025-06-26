@@ -10,22 +10,37 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import KMeans
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
-MODES = ["simple", "adaptive3d", "adaptive1d","sliding"]
+MODES = ["sliding"]
 LOSSES = ["triplet", "improved"]
-USE_TEST = True
+USE_TEST = False
+USE_24FPS = True  # 24fps の動画を使用するかどうか
+USE_UCF = True  # ✅ 追加：UCF101 データセットを使用するかどうか
 
 
 # --- 可視化対象のラベルを限定する（None の場合は全ラベル表示）
-VISIBLE_ACTIONS = None  # 例: ["walking", "eating"]
+VISIBLE_ACTIONS = None  # 例: ["running", "walking"]
 VISIBLE_SPECIES = None  # 例: ["polar bear", "zebra"]
+TEST_ONLY = False  # ✅ 追加：True にするとテストデータのみ使用
 
 # --- ラベル読み込み ---
 df = pd.read_csv('labels.csv')
-df_test = pd.read_csv('labels_test.csv')
+if USE_24FPS:
+    df_test =  pd.read_csv('labels_test_24fps.csv')
+elif USE_TEST:
+    df_test = pd.read_csv('labels_test.csv')
 df['video_path'] = df['video_path'].str.replace('\\', '/')
 df_test['video_path'] = df_test['video_path'].str.replace('\\', '/')
-if USE_TEST:
+if USE_TEST and TEST_ONLY:
+    df = df_test.copy()  # テストデータのみ使用する場合は df をテストデータに置き換え
+elif USE_TEST:
     df = pd.concat([df, df_test], ignore_index=True)
+
+if USE_UCF:
+    df_ucf = pd.read_csv('labels_ucf.csv')
+    df_ucf['video_path'] = df_ucf['video_path'].str.replace('\\', '/')
+    df = pd.concat([df, df_ucf], ignore_index=True)
+
+print("🎬 Action ラベル:", df['action'].unique())
 
 # --- ラベルエンコード ---
 le_act = LabelEncoder().fit(df['action'])
@@ -72,15 +87,29 @@ def evaluate_clustering(vecs, true_labels, name="",metric_file=None):
             f.write(f"  ARI = {ari:.4f}\n")
             f.write(f"  NMI = {nmi:.4f}\n\n")
 
-# --- 可視化関数 ---
 def plot_embedding(ax, proj, labels, label_encoder, title, show_legend=True):
     ax.set_title(title)
-    unique_labels = np.unique(labels)
-    cmap = plt.get_cmap('tab20')
-    for i, label in enumerate(unique_labels):
-        idx = np.array(labels) == label
-        label_name = label_encoder.inverse_transform([label])[0]
-        ax.scatter(proj[idx, 0], proj[idx, 1], s=5, color=cmap(i % 20), label=label_name)
+
+    # 固定ラベルとその色
+    gray_labels = {
+        "Attending", "Eating", "Jumping", "Keeping still",
+        "Running", "Sensing", "Walking"
+    }
+
+    label_names = label_encoder.classes_
+    cmap = plt.get_cmap('tab20')  # 自動カラーマップ
+
+    auto_color_idx = 0
+    for label_id, label_name in enumerate(label_names):
+        idx = np.array(labels) == label_id
+        if label_name in gray_labels:
+            color = "gray"
+        else:
+            color = cmap(auto_color_idx % 20)
+            auto_color_idx += 1
+
+        ax.scatter(proj[idx, 0], proj[idx, 1], s=5, color=color, label=label_name)
+
     if show_legend:
         ax.legend(fontsize=6, markerscale=3)
 
@@ -98,14 +127,20 @@ for mode in MODES:
         print(f"\n=== 処理中: mode={mode}, loss={loss} ===")
 
         # ベクトル読み込み
+        suffix = "_24fps" if USE_24FPS else ""
         vec_path = f'exec/vectors_{mode}.json'
-        vec_test_path = f'exec/vectors_{mode}_test.json'
+        vec_test_path = f'exec/vectors_{mode}_test{suffix}.json'
         with open(vec_path) as f:
             vecs = json.load(f)
         if USE_TEST:
             with open(vec_test_path) as f:
                 vecs_test = json.load(f)
             vecs.update(vecs_test)
+        if USE_UCF:
+            vec_ucf_path = f'exec/vectors_{mode}_ucf_labels.json'
+            with open(vec_ucf_path) as f:
+                vecs_ucf = json.load(f)
+            vecs.update(vecs_ucf)
 
         # モデル読み込み
         model_path = f'./model/disentangled_{mode}_{loss}.pth'
@@ -117,17 +152,14 @@ for mode in MODES:
         net.load_state_dict(torch.load(model_path))
         net.eval()
 
-        # 有効データのみフィルタ
-        df_valid = df[df['video_path'].apply(lambda p: p in vecs)]
-
-        # 可視化対象の action / species があればさらにフィルタ
-        if VISIBLE_ACTIONS is not None:
-            df_valid = df_valid[df_valid['action'].isin(VISIBLE_ACTIONS)]
-        if VISIBLE_SPECIES is not None:
-            df_valid = df_valid[df_valid['species'].isin(VISIBLE_SPECIES)]
+        # --- 利用可能なラベルを表示し、一時停止 ---
+        print("🔍 使用可能な Action ラベル:")
+        print(sorted(df['action'].unique()))
+        print("\n🔍 使用可能な Species ラベル:")
+        print(sorted(df['species'].unique()))
 
         # 埋め込み取得
-        a_vecs, s_vecs, a_labels, s_labels = get_embeddings(vecs, df_valid, net)
+        a_vecs, s_vecs, a_labels, s_labels = get_embeddings(vecs, df, net)
 
         # 評価
         evaluate_clustering(a_vecs, a_labels, f"{mode}/{loss} - Action", metric_file)
@@ -138,15 +170,20 @@ for mode in MODES:
         s_proj = TSNE(n_components=2, random_state=0, perplexity=30).fit_transform(s_vecs)
 
         # 描画と保存（フォルダ分けて）
+        suffix = "_24fps" if USE_24FPS else ""
+        if TEST_ONLY:
+            suffix += "_test"
+        if USE_UCF:
+            suffix += "_ucf"
         fig1, ax1 = plt.subplots(figsize=(7, 6))
         plot_embedding(ax1, a_proj, a_labels, le_act, "Action Embedding", show_legend=True)
-        save_path1 = f"result/action/{mode}_{loss}.png"
+        save_path1 = f"result/action/{mode}_{loss}{suffix}.png"
         plt.savefig(save_path1, bbox_inches='tight')
         plt.close()
 
         fig2, ax2 = plt.subplots(figsize=(7, 6))
         plot_embedding(ax2, s_proj, s_labels, le_sp, "Species Embedding", show_legend=False)
-        save_path2 = f"result/species/{mode}_{loss}.png"
+        save_path2 = f"result/species/{mode}_{loss}{suffix}.png"
         plt.savefig(save_path2, bbox_inches='tight')
         plt.close()
 

@@ -44,7 +44,7 @@ plt.title("🎬 labels.csv に含まれる動画のフレーム数分布")
 plt.grid(True)
 plt.tight_layout()
 plt.savefig("analyze/frame_count_histogram.png")
-plt.show()
+# plt.show()
 
 # 📈 統計情報の出力
 print("\n📊 フレーム数の統計:")

@@ -6,6 +6,8 @@ import decord
 import pandas as pd
 import torch.nn.functional as F
 from transformers import VideoMAEImageProcessor, VideoMAEModel
+import time  # ← これを追加
+
 
 # ------------------------
 # モデルとProcessorはグローバルで初期化
@@ -69,14 +71,14 @@ def video_to_vec_chunked(path, n_frames=16):
     except:
         return None
 
-def video_to_vec_sliding(path, n_frames=16):
+def video_to_vec_sliding(path, n_frames=16, stride=1):
     try:
         vr = decord.VideoReader(path)
         total_frames = len(vr)
         if total_frames < n_frames:
             return None
         cls_vectors = []
-        for start in range(0, total_frames - n_frames + 1):
+        for start in range(0, total_frames - n_frames + 1, stride):
             idx = list(range(start, start + n_frames))
             frames = vr.get_batch(idx).permute(0, 3, 1, 2).float() / 255.0
             inputs = processor(list(frames), return_tensors="pt", do_rescale=False).to(device)
@@ -91,17 +93,23 @@ def video_to_vec_sliding(path, n_frames=16):
     except:
         return None
 
-def main(mode, csv_file, test=False):
-    output_path = {
-        ('simple', False): './exec/vectors_simple.json',
-        ('3d', False): './exec/vectors_adaptive3d.json',
-        ('1d', False): './exec/vectors_adaptive1d.json',
-        ('sliding', False): './exec/vectors_sliding.json',
-        ('simple', True): './exec/vectors_simple_test.json',
-        ('3d', True): './exec/vectors_adaptive3d_test.json',
-        ('1d', True): './exec/vectors_adaptive1d_test.json',
-        ('sliding', True): './exec/vectors_sliding_test.json',
-    }[(mode, test)]
+
+def main(mode, csv_file, test=False, is24fps=True, stride=1):
+    start_time = time.time()
+    suffix = '_test' if test else ''
+    fps_suffix = '_24fps' if is24fps else ''
+    base_name = {
+        'simple': 'vectors_simple',
+        '3d': 'vectors_adaptive3d',
+        '1d': 'vectors_adaptive1d',
+        'sliding': 'vectors_sliding',
+    }[mode]
+
+    
+    csv_stem = os.path.splitext(os.path.basename(csv_file))[0]
+    output_path = f'./exec/{base_name}_{csv_stem}{suffix}{fps_suffix}.json'
+
+    print(f"✅ 出力パス: {output_path}")
 
     df = pd.read_csv(csv_file)
     df["species"] = df["species"].str.strip()
@@ -117,7 +125,10 @@ def main(mode, csv_file, test=False):
         rel_path = row['video_path'].replace('\\', '/')
         full_path = os.path.join('./', rel_path)
 
-        print(f"[{total_count}/{len(df)}] 処理中: {rel_path}", flush=True)
+        elapsed = time.time() - start_time
+        elapsed_str = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+
+        print(f"[{total_count}/{len(df)}] 処理中: {rel_path} | 経過: {elapsed_str}", flush=True)
 
         if mode == 'simple':
             vec = video_to_vec(full_path)
@@ -126,7 +137,7 @@ def main(mode, csv_file, test=False):
         elif mode == '1d':
             vec = video_to_vec_chunked(full_path)
         elif mode == 'sliding':
-            vec = video_to_vec_sliding(full_path)
+            vec = video_to_vec_sliding(full_path, n_frames=16, stride=stride)
         else:
             raise ValueError(f"Unknown mode: {mode}")
 
@@ -146,11 +157,12 @@ def main(mode, csv_file, test=False):
 
 
 if __name__ == "__main__":
-    modes = ['simple', '3d', '1d']
-    tests = [True]
+    modes = ['sliding']
+    stride = 1
+    csv = 'ucf_labels.csv'  # 固定で使用
+    test = False            # テスト用ではない
+    is24fps = False         # 24fpsでもない（必要に応じてTrueに）
 
     for mode in modes:
-        for test in tests:
-            csv = 'labels_test.csv' if test else 'labels.csv'
-            print(f"\n🚀 実行中: mode={mode}, test={test}")
-            main(mode, csv, test)
+        print(f"\n🚀 実行中: mode={mode}, test={test}, csv={csv}")
+        main(mode, csv, test=test, is24fps=is24fps, stride=stride)

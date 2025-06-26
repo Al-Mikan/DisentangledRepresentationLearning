@@ -9,6 +9,11 @@ import argparse
 from improved_triplet_loss import ImprovedTripletLoss
 
 
+# 行動の損失の重要度を上げ、種の損失の重要度を下げる
+lambda_action = 2.0  # 例えば2倍にする
+lambda_species = 0.5 # 例えば半分にする
+lambda_ortho = 0.05
+
 def train_one(loss_type, mode):
 # parser = argparse.ArgumentParser()
 # parser.add_argument('--mode', type=str, required=True, choices=['simple', 'adaptive3d', 'adaptive1d'])
@@ -68,6 +73,46 @@ def train_one(loss_type, mode):
             positives.append(vectors[j])
             negatives.append(vectors[k])
         return torch.stack(anchors), torch.stack(positives), torch.stack(negatives)
+    
+    # --- ハードマイニングのTripletペア作成関数 ---
+    def make_triplets_hard_mining(vectors, labels):
+        # (現在のmake_triplets関数をコピーして改造)
+        anchors, positives, negatives = [], [], []
+        
+        with torch.no_grad(): # 勾配計算は不要
+            # 全ペア間の距離を計算
+            all_dists = torch.cdist(vectors, vectors, p=2)
+
+        for i in range(len(vectors)):
+            anchor = vectors[i]
+            label = labels[i]
+            
+            # ポジティブサンプルのインデックス
+            pos_indices = torch.where(labels == label)[0]
+            pos_indices = pos_indices[pos_indices != i] # 自分自身を除く
+            
+            # ネガティブサンプルのインデックス
+            neg_indices = torch.where(labels != label)[0]
+
+            if len(pos_indices) == 0 or len(neg_indices) == 0:
+                continue
+                
+            # ★★★ ハードポジティブを選ぶ ★★★
+            # アンカーから最も「遠い」ポジティブサンプル
+            hardest_positive_idx = pos_indices[torch.argmax(all_dists[i, pos_indices])]
+            
+            # ★★★ ハードネガティブを選ぶ ★★★
+            # アンカーから最も「近い」ネガティブサンプル
+            hardest_negative_idx = neg_indices[torch.argmin(all_dists[i, neg_indices])]
+            
+            anchors.append(anchor)
+            positives.append(vectors[hardest_positive_idx])
+            negatives.append(vectors[hardest_negative_idx])
+            
+        if not anchors:
+            return None, None, None
+            
+        return torch.stack(anchors), torch.stack(positives), torch.stack(negatives)
 
     # --- ログ初期化 ---
     best_loss = float('inf')
@@ -91,8 +136,8 @@ def train_one(loss_type, mode):
                 a_vec, s_vec = net(z)
                 a_logits, s_logits = None, None
 
-            anc_a, pos_a, neg_a = make_triplets(a_vec, a)
-            anc_s, pos_s, neg_s = make_triplets(s_vec, s)
+            anc_a, pos_a, neg_a = make_triplets_hard_mining(a_vec, a)
+            anc_s, pos_s, neg_s = make_triplets_hard_mining(s_vec, s)
             if len(anc_a) == 0 or len(anc_s) == 0: continue
 
             loss_trip_a = triplet_loss_fn(anc_a, pos_a, neg_a)
@@ -102,7 +147,9 @@ def train_one(loss_type, mode):
             loss_ce_a = ce_act(a_logits, a) if loss_type == 'cross' else 0
             loss_ce_s = ce_sp(s_logits, s) if loss_type == 'cross' else 0
 
-            loss = loss_trip_a + loss_trip_s + 0.05 * loss_ortho
+            loss = (lambda_action * loss_trip_a) + \
+           (lambda_species * loss_trip_s) + \
+           (lambda_ortho * loss_ortho)
             if loss_type == 'cross':
                 loss += 0.5 * loss_ce_a + 0.5 * loss_ce_s
 

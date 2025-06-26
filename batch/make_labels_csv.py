@@ -44,3 +44,9 @@ with open(csv_output_path, "w", newline='', encoding='utf-8') as f:
     writer.writerows(final_rows)
 
 print(f"✅ labels.csv を {len(final_rows)} 件で作成しました（mammal かつ 1ラベル かつ action出現数100以上）。")
+
+# 使用された action ラベル一覧を表示
+used_actions = sorted({row[1] for row in final_rows})
+print("\n🔍 使用された Action ラベル一覧:")
+for action in used_actions:
+    print(f"・{action}")

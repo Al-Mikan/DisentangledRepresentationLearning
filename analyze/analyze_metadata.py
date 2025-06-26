@@ -45,7 +45,7 @@ plt.title("🎬 mammal 動画のアノテーション数の分布")
 plt.grid(True)
 plt.tight_layout()
 plt.savefig("./analyze/label_count_histogram_mammal.png")
-plt.show()
+# plt.show()
 
 # -----------------------------
 # ラベルが1つだけの mammal 動画を抽出
@@ -82,7 +82,7 @@ plt.ylabel("動画数")
 plt.title("🐾 ラベルが1つだけの mammal 動画に含まれる行動の数")
 plt.tight_layout()
 plt.savefig("./analyze/single_label_action_counts.png")
-plt.show()
+# plt.show()
 
 # -----------------------------
 # 2. 種（species）の出現数グラフ
@@ -97,4 +97,4 @@ plt.ylabel("動画数")
 plt.title("🦣 ラベルが1つだけの mammal 動画に含まれる種の数")
 plt.tight_layout()
 plt.savefig("./analyze/single_label_species_counts.png")
-plt.show()
+# plt.show()
