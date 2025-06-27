@@ -1,11 +1,11 @@
 import os
 import json
+import numpy as np
 import torch
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 import mplcursors
-from model import DisentangleNet, DisentangleNet2
+from model import DisentangleNet
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import KMeans
@@ -15,157 +15,177 @@ from matplotlib.widgets import LassoSelector
 from matplotlib.path import Path
 from umap import UMAP
 
+# === 設定 ===
 MODES = ["sliding"]
 LOSSES = ["triplet", "improved"]
-USE_TEST = True
+VISUALIZE = ["tsne", "umap"]
+INTERACTIVE = True
+
+DATA_MODE = "test"  # ["train", "test", "train+test"]
 USE_24FPS = True
 USE_UCF = True
-VISIBLE_ACTIONS = None
-VISIBLE_SPECIES = None
-TEST_ONLY = True
 
+# === データ読み込み ===
+df_train = pd.read_csv('labels.csv')
+df_train['video_path'] = df_train['video_path'].str.replace('\\', '/')
 
-# --- ラベル読み込み ---
-df = pd.read_csv('labels.csv')
-if USE_24FPS:
-    df_test = pd.read_csv('labels_test_24fps.csv')
-elif USE_TEST:
-    df_test = pd.read_csv('labels_test.csv')
-df['video_path'] = df['video_path'].str.replace('\\', '/')
+df_test = pd.read_csv('labels_test_24fps.csv' if USE_24FPS else 'labels_test.csv')
 df_test['video_path'] = df_test['video_path'].str.replace('\\', '/')
-if USE_TEST and TEST_ONLY:
+
+if DATA_MODE == "train":
+    df = df_train.copy()
+elif DATA_MODE == "test":
     df = df_test.copy()
-elif USE_TEST:
-    df = pd.concat([df, df_test], ignore_index=True)
+elif DATA_MODE == "train+test":
+    df = pd.concat([df_train, df_test], ignore_index=True)
+else:
+    raise ValueError(f"Unknown DATA_MODE: {DATA_MODE}")
+
 if USE_UCF:
     df_ucf = pd.read_csv('labels_ucf.csv')
-    df_ucf['video_path'] = df_ucf['video_path'].str.replace('\\', '/')
-    df_ucf['video_path'] = df_ucf['video_path'].apply(lambda p: os.path.basename(p))
+    df_ucf['video_path'] = df_ucf['video_path'].str.replace('\\', '/').apply(os.path.basename)
     df = pd.concat([df, df_ucf], ignore_index=True)
 
-# --- ラベルエンコード ---
+# === ラベルエンコード ===
 le_act = LabelEncoder().fit(df['action'])
-le_sp = LabelEncoder().fit(df['species'])
 df['act_id'] = le_act.transform(df['action'])
-df['sp_id'] = le_sp.transform(df['species'])
-A = len(le_act.classes_)
-S = len(le_sp.classes_)
 
-# --- 埋め込み抽出（video_path付き） ---
-def get_embeddings_with_paths(vecs_dict, df, model):
-    a_vecs, s_vecs, a_labels, s_labels, paths = [], [], [], [], []
-    with torch.no_grad():
-        for _, row in df.iterrows():
-            path = row['video_path']
-            if path not in vecs_dict:
-                continue
-            z = torch.tensor(vecs_dict[path]).unsqueeze(0).float().cuda()
-            a_vec, s_vec = model(z)
-            a_vecs.append(a_vec.squeeze(0).cpu())
-            s_vecs.append(s_vec.squeeze(0).cpu())
-            a_labels.append(row['act_id'])
-            s_labels.append(row['sp_id'])
-            paths.append(path)
-    return torch.stack(a_vecs), torch.stack(s_vecs), a_labels, s_labels, paths
-
-# --- クラスタリング評価 ---
-def evaluate_clustering(vecs, true_labels, name="", metric_file=None):
-    n_clusters = len(np.unique(true_labels))
-    preds = KMeans(n_clusters=n_clusters, init='k-means++', random_state=0).fit_predict(vecs)
-    ari = adjusted_rand_score(true_labels, preds)
-    nmi = normalized_mutual_info_score(true_labels, preds)
-    print(f"\n📊 {name} のクラスタリング評価")
-    print(f"  🔹 ARI  : {ari:.4f}")
-    print(f"  🔹 NMI  : {nmi:.4f}")
-    if metric_file:
-        with open(metric_file, 'a') as f:
-            f.write(f"{name}\n  ARI = {ari:.4f}\n  NMI = {nmi:.4f}\n\n")
-
-# --- インタラクティブ可視化 ---
-def interactive_plot_embedding(proj, labels, label_encoder, paths, title):
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.set_title(title)
-    label_names = label_encoder.classes_
-    colors = plt.get_cmap('tab20')(np.array(labels) % 20)
-    sc = ax.scatter(proj[:, 0], proj[:, 1], s=5, c=colors)
-
-
-    # hover 表示
-    cursor = mplcursors.cursor(sc, hover=True)
-    @cursor.connect("add")
-    def on_add(sel):
-        idx = sel.index
-        sel.annotation.set_text(f"{label_names[labels[idx]]}\n{paths[idx]}")
-        sel.annotation.get_bbox_patch().set(fc="white", alpha=0.8)
-        sel.annotation.set_fontsize(8)
-
-    # クリック時コピー（マウスイベントだけに登録）
-    def on_click(event):
-        if event.inaxes != ax:
-            return
-        cont, ind = sc.contains(event)
-        if cont:
-            idx = ind["ind"][0]
-            path = paths[idx]
-            pyperclip.copy(path)
-            print(f"📋 Copied to clipboard: {path}")
-
-    # イベント登録は cursor ではなく fig.canvas に対して行う！
-    fig.canvas.mpl_connect("button_press_event", on_click)
-
-
-    # 自由選択時に一致パスを出力＋クリップボードコピー
-    def on_select(verts):
-        path_obj = Path(verts)
-        selected = path_obj.contains_points(proj)
-        selected_paths = [paths[i] for i, flag in enumerate(selected) if flag]
-        if selected_paths:
-            joined = '\n'.join(selected_paths)
-            pyperclip.copy(joined)
-            print("\n-----")
-            print("\n✏️ Lasso selected paths (copied):")
-            for p in selected_paths:
-                print(" •", p)
-            print("-----\n")  # 区切り線を閉じる
-
-    lasso = LassoSelector(ax, on_select)
-    plt.show()
-
-# --- 結果ディレクトリ作成 ---
-metric_file = "result/metrics.txt"
-os.makedirs("result/action", exist_ok=True)
-os.makedirs("result/species", exist_ok=True)
+# === 出力フォルダ準備 ===
+os.makedirs("result_only_species", exist_ok=True)
+metric_file = "result_only_species/metrics.txt"
 if os.path.exists(metric_file):
     os.remove(metric_file)
 
-# --- メインループ ---
+# === 埋め込み抽出 ===
+def get_action_embeddings(vecs, df, model):
+    vecs_list, labels, paths = [], [], []
+    with torch.no_grad():
+        for _, row in df.iterrows():
+            path = row['video_path']
+            if path not in vecs:
+                continue
+            z = torch.tensor(vecs[path]).unsqueeze(0).float().cuda()
+            a_vec = model(z)
+            vecs_list.append(a_vec.squeeze(0).cpu())
+            labels.append(row['act_id'])
+            paths.append(path)
+    return torch.stack(vecs_list), labels, paths
+
+# === クラスタリング評価 ===
+def evaluate_clustering(vecs, labels, name):
+    n_clusters = len(np.unique(labels))
+    preds = KMeans(n_clusters=n_clusters, random_state=0).fit_predict(vecs)
+    ari = adjusted_rand_score(labels, preds)
+    nmi = normalized_mutual_info_score(labels, preds)
+    print(f"📊 {name} ARI: {ari:.4f} | NMI: {nmi:.4f}")
+    with open(metric_file, 'a') as f:
+        f.write(f"{name}\n ARI = {ari:.4f} | NMI = {nmi:.4f}\n")
+
+def plot_embedding(proj, labels, label_encoder, paths, title, out_path, interactive):
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.set_title(title)
+
+    unique_labels = np.unique(labels)
+    cmap = plt.get_cmap('tab20')
+
+    scatter_plots = []
+    scatter_indices = []  # 各 scatter がどのインデックスを使ってるか保持
+
+    for label in unique_labels:
+        mask = np.array(labels) == label
+        color = cmap(label % 20)
+        sc = ax.scatter(proj[mask, 0], proj[mask, 1],
+                        s=5, c=[color], label=label_encoder.classes_[label])
+        scatter_plots.append(sc)
+        scatter_indices.append(np.where(mask)[0])  # ← ここで全体 index を保持
+
+    legend = ax.legend(markerscale=3, bbox_to_anchor=(1.05, 1), loc='upper left',
+                       borderaxespad=0., fontsize=8, title="Actions")
+
+    fig.tight_layout()
+
+    if interactive:
+        cursor = mplcursors.cursor(scatter_plots, hover=True)
+
+        @cursor.connect("add")
+        def on_add(sel):
+            sc_idx = scatter_plots.index(sel.artist)  # どの scatter か特定
+            local_idx = sel.index                     # その scatter 内のインデックス
+            true_idx = scatter_indices[sc_idx][local_idx]  # 全体 index に変換
+
+            sel.annotation.set_text(f"{label_encoder.classes_[labels[true_idx]]}\n{paths[true_idx]}")
+            sel.annotation.get_bbox_patch().set(fc="white", alpha=0.8)
+            sel.annotation.set_fontsize(8)
+
+        def on_click(event):
+            if event.inaxes != ax:
+                return
+            for sc, idxs in zip(scatter_plots, scatter_indices):
+                cont, ind = sc.contains(event)
+                if cont:
+                    local_idx = ind["ind"][0]
+                    true_idx = idxs[local_idx]
+                    path = paths[true_idx]
+                    pyperclip.copy(path)
+                    print(f"📋 Copied: {path}")
+                    break
+
+        fig.canvas.mpl_connect("button_press_event", on_click)
+
+        def on_select(verts):
+            mask = Path(verts).contains_points(proj)
+            selected = [paths[i] for i, m in enumerate(mask) if m]
+            if selected:
+                joined = "\n".join(selected)
+                pyperclip.copy(joined)
+                print("\n-----\n✏️ Selected paths:\n", joined, "\n-----")
+
+        LassoSelector(ax, on_select)
+
+    plt.savefig(out_path, bbox_inches='tight', bbox_extra_artists=[legend])
+    # plt.show()
+
+
+# === メイン ===
 for mode in MODES:
     for loss in LOSSES:
-        print(f"\n=== 処理中: mode={mode}, loss={loss} ===")
         suffix = "_24fps" if USE_24FPS else ""
+
+        print(f"=== Processing: {mode} | {loss} | DATA_MODE={DATA_MODE} ===")
+
+        # ベクトルファイル読み込み
         vec_path = f'exec/vectors_{mode}.json'
-        vec_test_path = f'exec/vectors_{mode}_test{suffix}.json'
-        with open(vec_path) as f:
-            vecs = json.load(f)
-        if USE_TEST:
-            with open(vec_test_path) as f:
-                vecs_test = json.load(f)
-            vecs.update(vecs_test)
+        vecs = {}
+        if os.path.exists(vec_path):
+            with open(vec_path) as f:
+                vecs.update(json.load(f))
+        test_vec_path = f'exec/vectors_{mode}_test{suffix}.json'
+        if DATA_MODE in ["test", "train+test"] and os.path.exists(test_vec_path):
+            with open(test_vec_path) as f:
+                vecs.update(json.load(f))
         if USE_UCF:
             with open(f'exec/vectors_{mode}_ucf_labels.json') as f:
-                vecs_ucf = json.load(f)
-            vecs.update(vecs_ucf)
+                vecs.update(json.load(f))
 
-        model_path = f'./model/disentangled_{mode}_{loss}.pth'
-        net = DisentangleNet2(D=768, H=256, A=A, S=S).cuda() if loss == "cross" else DisentangleNet(D=768, H=256).cuda()
-        net.load_state_dict(torch.load(model_path))
+        net = DisentangleNet(D=768, H=256).cuda()
+        net.load_state_dict(torch.load(f'./model/disentangled_{mode}_{loss}.pth'))
         net.eval()
 
-        df_valid = df[df['video_path'].isin(vecs.keys())].copy()
-        a_vecs, s_vecs, a_labels, s_labels, video_paths = get_embeddings_with_paths(vecs, df_valid, net)
+        df_valid = df[df['video_path'].isin(vecs)].copy()
+        a_vecs, a_labels, paths = get_action_embeddings(vecs, df_valid, net)
 
-        evaluate_clustering(a_vecs, a_labels, f"{mode}/{loss} - Action", metric_file)
-        evaluate_clustering(s_vecs, s_labels, f"{mode}/{loss} - Species", metric_file)
+        evaluate_clustering(a_vecs, a_labels, f"{mode}/{loss} Action")
 
-        a_proj = TSNE(n_components=2, random_state=0, perplexity=30).fit_transform(a_vecs.numpy())
-        interactive_plot_embedding(a_proj, a_labels, le_act, video_paths, "🎬 Action Embedding")
+        for method in VISUALIZE:
+            if method == "tsne":
+                proj = TSNE(n_components=2, random_state=0).fit_transform(a_vecs)
+            elif method == "umap":
+                proj = UMAP(n_neighbors=15, min_dist=0.1).fit_transform(a_vecs)
+            else:
+                continue
+
+            out_dir = f"result_only_species/{method}"
+            os.makedirs(out_dir, exist_ok=True)
+            out_file = f"{out_dir}/{mode}_{loss}{suffix}_{method}_{DATA_MODE}.png"
+            plot_embedding(proj, a_labels, le_act, paths,
+                           f"Action {method.upper()}", out_file, INTERACTIVE)

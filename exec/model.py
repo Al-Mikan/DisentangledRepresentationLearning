@@ -7,32 +7,92 @@ import json
 from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import Dataset, DataLoader
 
+# === GRL ===
+from torch.autograd import Function
+
+class GradientReverseLayer(Function):
+    @staticmethod
+    def forward(ctx, x, lambda_grl=1.0):
+        ctx.lambda_grl = lambda_grl
+        return x.view_as(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output.neg() * ctx.lambda_grl, None
+
+def grad_reverse(x, lambda_grl=1.0):
+    return GradientReverseLayer.apply(x, lambda_grl)
+
 # -----------------------------
 # モデル定義
 # -----------------------------
 class DisentangleNet(nn.Module):
-    def __init__(self, D=768, H=256):
+    def __init__(self, D=768, H=256, A=10, S=10):
         super().__init__()
-        self.sp_embed = nn.Linear(D, H, bias=False)
         self.act_embed = nn.Linear(D, H, bias=False)
+        self.sp_embed = nn.Linear(D, H, bias=False)
+        self.action_disc = nn.Linear(H, A)  # 種から行動を当てる Discriminator
+        self.species_disc = nn.Linear(H, S)  # 行動から種を当てる Discriminator
 
-    def forward(self, z):
-        return self.act_embed(z), self.sp_embed(z)
+    def forward(self, z, grl_lambda=1.0):
+        a_vec = self.act_embed(z)
+        s_vec = self.sp_embed(z)
+
+        # GRL を通す
+        s_pred_from_a = self.species_disc(grad_reverse(a_vec, grl_lambda))
+        a_pred_from_s = self.action_disc(grad_reverse(s_vec, grl_lambda))
+
+        return a_vec, s_vec, s_pred_from_a, a_pred_from_s
+    
+class DisentangleNetNonlinear(nn.Module):
+    """
+    🔥 非線形ヘッド版
+    act_embed と sp_embed に2層MLPを使う
+    """
+    def __init__(self, D=768, H=256, A=10, S=10, hidden=512):
+        super().__init__()
+        self.act_embed = nn.Sequential(
+            nn.Linear(D, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, H)
+        )
+        self.sp_embed = nn.Sequential(
+            nn.Linear(D, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, H)
+        )
+        self.action_disc = nn.Linear(H, A)
+        self.species_disc = nn.Linear(H, S)
+
+    def forward(self, z, grl_lambda=1.0):
+        a_vec = self.act_embed(z)
+        s_vec = self.sp_embed(z)
+        s_pred_from_a = self.species_disc(grad_reverse(a_vec, grl_lambda))
+        a_pred_from_s = self.action_disc(grad_reverse(s_vec, grl_lambda))
+        return a_vec, s_vec, s_pred_from_a, a_pred_from_s
+    
 
 class DisentangleNet2(nn.Module):
     def __init__(self, A, S, D=768, H=256):
         super().__init__()
-        self.sp_embed = nn.Linear(D, H, bias=False)
         self.act_embed = nn.Linear(D, H, bias=False)
+        self.sp_embed = nn.Linear(D, H, bias=False)
         self.act_classifier = nn.Linear(H, A)
         self.sp_classifier = nn.Linear(H, S)
+        self.action_disc = nn.Linear(H, A)
+        self.species_disc = nn.Linear(H, S)
 
-    def forward(self, z):
+    def forward(self, z, grl_lambda=1.0):
         a_vec = self.act_embed(z)
         s_vec = self.sp_embed(z)
         a_logits = self.act_classifier(a_vec)
         s_logits = self.sp_classifier(s_vec)
-        return a_vec, s_vec, a_logits, s_logits
+
+        # GRL で逆学習
+        s_pred_from_a = self.species_disc(grad_reverse(a_vec, grl_lambda))
+        a_pred_from_s = self.action_disc(grad_reverse(s_vec, grl_lambda))
+
+        return a_vec, s_vec, a_logits, s_logits, s_pred_from_a, a_pred_from_s
 
 # -----------------------------
 # データ読み込み・前処理関数

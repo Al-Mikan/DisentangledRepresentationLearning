@@ -4,30 +4,24 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from torch import nn
-from model import load_data, create_dataloader,DisentangleNet, DisentangleNet2
-import argparse
+from model import load_data, create_dataloader, DisentangleNet, DisentangleNet2
 from improved_triplet_loss import ImprovedTripletLoss
+import requests
 
+# 損失の重み係数
+LAMBDA_ACTION = 2.0
+LAMBDA_SPECIES = 0.5
+LAMBDA_ADV = 0.5  
 
-# 行動の損失の重要度を上げ、種の損失の重要度を下げる
-lambda_action = 2.0  # 例えば2倍にする
-lambda_species = 0.5 # 例えば半分にする
-lambda_ortho = 0.05
+def train_one(loss_type, mode, use_grl=True, use_nonlinear=False):
 
-def train_one(loss_type, mode):
-# parser = argparse.ArgumentParser()
-# parser.add_argument('--mode', type=str, required=True, choices=['simple', 'adaptive3d', 'adaptive1d'])
-# parser.add_argument('--loss', type=str, default='triplet', choices=['triplet', 'improved', 'cross'], help="Loss function type")
-# args = parser.parse_args()
+    send_discord_message(
+        f"🚀 Training started: mode={mode} | loss={loss_type} | {'nonlinear' if use_nonlinear else 'linear'} | GRL={'ON' if use_grl else 'OFF'}"
+    )
 
-# mode = args.mode
-# loss_type = args.loss
-
-    # --- ハイパーパラメータ設定 ---
     n_epochs = 1000
     patience = 50
 
-    # --- データ読み込み ---
     output_path = {
         'simple': './exec/vectors_simple.json',
         'adaptive3d': './exec/vectors_adaptive3d.json',
@@ -39,196 +33,158 @@ def train_one(loss_type, mode):
     A, S = len(le_act.classes_), len(le_sp.classes_)
     loader = create_dataloader(df, vecs, batch_size=64, shuffle=True)
 
-    # --- モデル・最適化関数の準備 ---
-    if loss_type == 'cross':
-        net = DisentangleNet2(D=768, H=256, A=A, S=S).cuda()
+    if use_nonlinear:
+        from model import DisentangleNetNonlinear  # ← 事前に Nonlinear クラスを import しておく
+        net = DisentangleNetNonlinear(D=768, H=256, A=A, S=S).cuda()
     else:
-        net = DisentangleNet(D=768, H=256).cuda()
+        net = DisentangleNet(D=768, H=256, A=A, S=S).cuda()
 
     opt = torch.optim.Adam(net.parameters(), lr=1e-4)
 
     if loss_type == 'triplet':
         triplet_loss_fn = nn.TripletMarginLoss(margin=1.0, p=2)
-    elif loss_type == 'improved':
+    else:
+        from improved_triplet_loss import ImprovedTripletLoss
         triplet_loss_fn = ImprovedTripletLoss(tau1=1.0, tau2=0.5, beta=0.5)
 
     ce_act = nn.CrossEntropyLoss()
     ce_sp = nn.CrossEntropyLoss()
-    ortho = lambda u, v: ((u * v).sum(dim=1) ** 2).mean()
 
-    # --- Tripletペア作成 ---
-    def make_triplets(vectors, labels):
+    def make_triplets_hard(vectors, labels):
         anchors, positives, negatives = [], [], []
-        labels = labels.cpu().numpy()
+        with torch.no_grad():
+            dists = torch.cdist(vectors, vectors, p=2)
         for i in range(len(vectors)):
-            anchor = vectors[i]
             label = labels[i]
-            pos_idx = np.where(labels == label)[0]
-            neg_idx = np.where(labels != label)[0]
-            pos_idx = [j for j in pos_idx if j != i]
-            if not pos_idx or not len(neg_idx): continue
-            j = np.random.choice(pos_idx)
-            k = np.random.choice(neg_idx)
-            anchors.append(anchor)
-            positives.append(vectors[j])
-            negatives.append(vectors[k])
-        return torch.stack(anchors), torch.stack(positives), torch.stack(negatives)
-    
-    # --- ハードマイニングのTripletペア作成関数 ---
-    def make_triplets_hard_mining(vectors, labels):
-        # (現在のmake_triplets関数をコピーして改造)
-        anchors, positives, negatives = [], [], []
-        
-        with torch.no_grad(): # 勾配計算は不要
-            # 全ペア間の距離を計算
-            all_dists = torch.cdist(vectors, vectors, p=2)
-
-        for i in range(len(vectors)):
-            anchor = vectors[i]
-            label = labels[i]
-            
-            # ポジティブサンプルのインデックス
-            pos_indices = torch.where(labels == label)[0]
-            pos_indices = pos_indices[pos_indices != i] # 自分自身を除く
-            
-            # ネガティブサンプルのインデックス
-            neg_indices = torch.where(labels != label)[0]
-
-            if len(pos_indices) == 0 or len(neg_indices) == 0:
+            pos_idx = torch.where(labels == label)[0]
+            neg_idx = torch.where(labels != label)[0]
+            pos_idx = pos_idx[pos_idx != i]
+            if len(pos_idx) == 0 or len(neg_idx) == 0:
                 continue
-                
-            # ★★★ ハードポジティブを選ぶ ★★★
-            # アンカーから最も「遠い」ポジティブサンプル
-            hardest_positive_idx = pos_indices[torch.argmax(all_dists[i, pos_indices])]
-            
-            # ★★★ ハードネガティブを選ぶ ★★★
-            # アンカーから最も「近い」ネガティブサンプル
-            hardest_negative_idx = neg_indices[torch.argmin(all_dists[i, neg_indices])]
-            
-            anchors.append(anchor)
-            positives.append(vectors[hardest_positive_idx])
-            negatives.append(vectors[hardest_negative_idx])
-            
+            hardest_pos = pos_idx[torch.argmax(dists[i, pos_idx])]
+            hardest_neg = neg_idx[torch.argmin(dists[i, neg_idx])]
+            anchors.append(vectors[i])
+            positives.append(vectors[hardest_pos])
+            negatives.append(vectors[hardest_neg])
         if not anchors:
             return None, None, None
-            
         return torch.stack(anchors), torch.stack(positives), torch.stack(negatives)
 
-    # --- ログ初期化 ---
     best_loss = float('inf')
-    no_improve_count = 0
-    log = {
-        'triplet_action': [], 'triplet_species': [],
-        'ce_action': [], 'ce_species': [],
-        'ortho': [], 'total': []
-    }
+    no_improve = 0
 
-    # --- 学習ループ ---
+    log = {'triplet_action': [], 'triplet_species': [], 'adv_species': [], 'adv_action': [], 'total': []}
+
     for epoch in range(n_epochs):
-        ep_trip_a, ep_trip_s, ep_ce_a, ep_ce_s, ep_ortho, ep_total = 0, 0, 0, 0, 0, 0
+        sum_trip_a, sum_trip_s, sum_adv_s, sum_adv_a, sum_total = 0, 0, 0, 0, 0
         steps = 0
+
         for z, a, s in loader:
             z, a, s = z.cuda(), a.cuda().long(), s.cuda().long()
+            grl_lambda = 1.0 if use_grl else 0.0
 
-            if loss_type == 'cross':
-                a_vec, s_vec, a_logits, s_logits = net(z)
-            else:
-                a_vec, s_vec = net(z)
-                a_logits, s_logits = None, None
+            a_vec, s_vec, s_pred_from_a, a_pred_from_s = net(z, grl_lambda=grl_lambda)
 
-            anc_a, pos_a, neg_a = make_triplets_hard_mining(a_vec, a)
-            anc_s, pos_s, neg_s = make_triplets_hard_mining(s_vec, s)
-            if len(anc_a) == 0 or len(anc_s) == 0: continue
+            anc_a, pos_a, neg_a = make_triplets_hard(a_vec, a)
+            anc_s, pos_s, neg_s = make_triplets_hard(s_vec, s)
+            if anc_a is None or anc_s is None:
+                continue
 
             loss_trip_a = triplet_loss_fn(anc_a, pos_a, neg_a)
             loss_trip_s = triplet_loss_fn(anc_s, pos_s, neg_s)
-            loss_ortho = ortho(a_vec, s_vec)
+            loss_adv_s = ce_sp(s_pred_from_a, s)
+            loss_adv_a = ce_act(a_pred_from_s, a)
 
-            loss_ce_a = ce_act(a_logits, a) if loss_type == 'cross' else 0
-            loss_ce_s = ce_sp(s_logits, s) if loss_type == 'cross' else 0
+            loss = (LAMBDA_ACTION * loss_trip_a) + (LAMBDA_SPECIES * loss_trip_s)
+            if use_grl:
+                loss += LAMBDA_ADV * (loss_adv_s + loss_adv_a)
 
-            loss = (lambda_action * loss_trip_a) + \
-           (lambda_species * loss_trip_s) + \
-           (lambda_ortho * loss_ortho)
-            if loss_type == 'cross':
-                loss += 0.5 * loss_ce_a + 0.5 * loss_ce_s
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
 
-            opt.zero_grad(); loss.backward(); opt.step()
-
-            ep_trip_a += loss_trip_a.item()
-            ep_trip_s += loss_trip_s.item()
-            ep_ce_a += loss_ce_a.item() if loss_type == 'cross' else 0
-            ep_ce_s += loss_ce_s.item() if loss_type == 'cross' else 0
-            ep_ortho += loss_ortho.item()
-            ep_total += loss.item()
+            sum_trip_a += loss_trip_a.item()
+            sum_trip_s += loss_trip_s.item()
+            sum_adv_s += loss_adv_s.item()
+            sum_adv_a += loss_adv_a.item()
+            sum_total += loss.item()
             steps += 1
 
-        avg_total = ep_total / steps
-        log['triplet_action'].append(ep_trip_a / steps)
-        log['triplet_species'].append(ep_trip_s / steps)
-        log['ce_action'].append(ep_ce_a / steps if loss_type == 'cross' else 0)
-        log['ce_species'].append(ep_ce_s / steps if loss_type == 'cross' else 0)
-        log['ortho'].append(ep_ortho / steps)
-        log['total'].append(avg_total)
+        avg_loss = sum_total / steps
+        log['triplet_action'].append(sum_trip_a / steps)
+        log['triplet_species'].append(sum_trip_s / steps)
+        log['adv_species'].append(sum_adv_s / steps)
+        log['adv_action'].append(sum_adv_a / steps)
+        log['total'].append(avg_loss)
 
-        print(f"epoch {epoch:03d}: loss={avg_total:.3f}, trip_a={ep_trip_a/steps:.3f}, trip_s={ep_trip_s/steps:.3f}, ce_a={ep_ce_a/steps if loss_type == 'cross' else 0:.3f}, ce_s={ep_ce_s/steps if loss_type == 'cross' else 0:.3f}, ortho={ep_ortho/steps:.3f}")
+        print(f"Epoch {epoch:03d} | total={avg_loss:.4f} | trip_a={sum_trip_a/steps:.4f} | trip_s={sum_trip_s/steps:.4f} | adv_s={sum_adv_s/steps:.4f} | adv_a={sum_adv_a/steps:.4f}")
 
-        # --- Early Stopping ---
-        if avg_total < best_loss:
-            best_loss = avg_total
-            no_improve_count = 0
-            suffix = f"{mode}_{loss_type}"
-            model_save_path = f"./model/disentangled_{suffix}.pth"
-            torch.save(net.state_dict(),model_save_path)
-            
+        suffix = f"{mode}_{loss_type}_{'nonlinear' if use_nonlinear else 'linear'}_{'grl' if use_grl else 'nogrl'}"
+
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            no_improve = 0
+            torch.save(net.state_dict(), f"./model/disentangled_{suffix}.pth")
         else:
-            no_improve_count += 1
-            if no_improve_count >= patience:
-                print(f"🛑 {patience}エポック連続でloss改善がないため、学習を終了します。")
+            no_improve += 1
+            if no_improve >= patience:
+                print(f"🛑 No improvement for {patience} epochs. Stopping.")
                 break
 
-    # --- 保存パスを条件で分岐 ---
-    save_path = f"./loss/training_losses_{suffix}.png"
-
-    # --- ロス可視化 ---
+    os.makedirs("loss", exist_ok=True)
     plt.figure(figsize=(10, 6))
-    plt.plot(log['total'], label='Total Loss')
-    plt.plot(log['triplet_action'], label='Triplet Loss (Action)')
-    plt.plot(log['triplet_species'], label='Triplet Loss (Species)')
-    if loss_type == 'cross':
-        plt.plot(log['ce_action'], label='CrossEntropy (Action)')
-        plt.plot(log['ce_species'], label='CrossEntropy (Species)')
-    plt.plot(log['ortho'], label='Orthogonality')
+    plt.plot(log['total'], label='Total')
+    plt.plot(log['triplet_action'], label='Triplet Action')
+    plt.plot(log['triplet_species'], label='Triplet Species')
+    plt.plot(log['adv_species'], label='Adv Species')
+    plt.plot(log['adv_action'], label='Adv Action')
+    plt.title(f"Training Loss: {suffix}")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.title("Training Losses")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(save_path)
-    
-            # ログファイルも一緒に保存
-    os.makedirs("loss", exist_ok=True)
+    plt.savefig(f"./loss/training_losses_{suffix}.png")
+
     with open("loss/final_losses_summary.txt", "a") as f:
         f.write(
-            f"[{mode} | {loss_type}] epoch={epoch:03d}, "
-            f"total={avg_total:.4f}, trip_a={ep_trip_a/steps:.4f}, "
-            f"trip_s={ep_trip_s/steps:.4f}, "
-            f"ce_a={(ep_ce_a/steps if loss_type == 'cross' else 0):.4f}, "
-            f"ce_s={(ep_ce_s/steps if loss_type == 'cross' else 0):.4f}, "
-            f"ortho={ep_ortho/steps:.4f}\n")
-        
+            f"[{suffix}] epoch={epoch} | "
+            f"total={avg_loss:.4f} | trip_a={sum_trip_a/steps:.4f} | "
+            f"trip_s={sum_trip_s/steps:.4f} | "
+            f"adv_s={sum_adv_s/steps:.4f} | adv_a={sum_adv_a/steps:.4f}\n"
+        )
+    
+    send_discord_message(
+        f"✅ Training complete: {suffix}\n"
+        f"Total Loss: {avg_loss:.4f}\n"
+        f"Triplet Action Loss: {sum_trip_a/steps:.4f}\n"
+        f"Triplet Species Loss: {sum_trip_s/steps:.4f}\n"
+        f"Adversarial Species Loss: {sum_adv_s/steps:.4f}\n"
+        f"Adversarial Action Loss: {sum_adv_a/steps:.4f}"
+    )
 
+WEBHOOK_URL ="https://discord.com/api/webhooks/1388129650185732236/t4sICEWcUnyZmPQe-iYlCZTLxhK1TjF3Ucotxltm59BO4gPZYB2Q-ybzdVCOYa0DXDVn"
 
+def send_discord_message(message: str):
+    payload = {
+        "content": message
+    }
+    response = requests.post(WEBHOOK_URL, json=payload)
+    if response.status_code != 204:
+        print("❌ Discord通知に失敗しました:", response.status_code, response.text)
 
 def main():
-    all_loss_types = ['triplet', 'improved']
     all_modes = ['simple', 'adaptive3d', 'adaptive1d', 'sliding']
-
+    all_loss_types = ['triplet', 'improved']
     for mode in all_modes:
         for loss_type in all_loss_types:
-            print(f"\n🚀 Start training: mode={mode}, loss={loss_type}")
-            train_one(loss_type=loss_type, mode=mode)
+            for use_nonlinear in [True, False]:
+                print(f"\n🚀 Training: mode={mode} | loss={loss_type} | {'nonlinear' if use_nonlinear else 'linear'} | GRL=ON")
+                train_one(loss_type, mode, use_grl=True, use_nonlinear=use_nonlinear)
+
+                print(f"\n🚀 Training: mode={mode} | loss={loss_type} | {'nonlinear' if use_nonlinear else 'linear'} | GRL=OFF")
+                train_one(loss_type, mode, use_grl=False, use_nonlinear=use_nonlinear)
+
 
 if __name__ == "__main__":
     main()
