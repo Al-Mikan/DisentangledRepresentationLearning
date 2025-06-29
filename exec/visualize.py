@@ -65,7 +65,7 @@ def get_action_embeddings(vecs, df, model):
             if path not in vecs:
                 continue
             z = torch.tensor(vecs[path]).unsqueeze(0).float().cuda()
-            a_vec = model(z)
+            a_vec, _ = model(z)
             vecs_list.append(a_vec.squeeze(0).cpu())
             labels.append(row['act_id'])
             paths.append(path)

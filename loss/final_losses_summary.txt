@@ -20,3 +20,68 @@
 [adaptive1d | improved] epoch=425, total=0.8855, trip_a=0.5939, trip_s=0.2915, ce_a=0.0000, ce_s=0.0000, ortho=0.0012
 [sliding | triplet] epoch=572, total=0.4593, trip_a=0.3727, trip_s=0.0865, ce_a=0.0000, ce_s=0.0000, ortho=0.0025
 [sliding | improved] epoch=560, total=0.8195, trip_a=0.5579, trip_s=0.2615, ce_a=0.0000, ce_s=0.0000, ortho=0.0013
+[simple | triplet] epoch=666, total=1.0562, trip_a=1.0562, ce_a=0.0000
+[simple | triplet] epoch=610, total=1.0558, trip_a=1.0558, ce_a=0.0000
+[simple | improved] epoch=474, total=1.0452, trip_a=1.0452, ce_a=0.0000
+[adaptive3d | triplet] epoch=538, total=1.0612, trip_a=1.0612, ce_a=0.0000
+[adaptive3d | improved] epoch=355, total=1.0461, trip_a=1.0461, ce_a=0.0000
+[adaptive1d | triplet] epoch=700, total=1.0364, trip_a=1.0364, ce_a=0.0000
+[adaptive1d | improved] epoch=310, total=1.0422, trip_a=1.0422, ce_a=0.0000
+[sliding | triplet] epoch=775, total=1.0362, trip_a=1.0362, ce_a=0.0000
+[sliding | improved] epoch=633, total=1.0313, trip_a=1.0313, ce_a=0.0000
+[simple_triplet_nonlinear_grl] epoch=999 | total=4.9740 | trip_a=1.0000 | trip_s=0.0075 | adv_s=4.1291 | adv_a=1.8113
+[simple_triplet_nonlinear_nogrl] epoch=409 | total=2.0007 | trip_a=1.0000 | trip_s=0.0012 | adv_s=5.0194 | adv_a=1.9671
+[simple_triplet_linear_grl] epoch=879 | total=5.2067 | trip_a=1.0614 | trip_s=0.2622 | adv_s=4.1546 | adv_a=1.7511
+[simple_triplet_linear_nogrl] epoch=999 | total=2.1975 | trip_a=1.0488 | trip_s=0.1998 | adv_s=5.0354 | adv_a=1.9310
+[simple_improved_nonlinear_grl] epoch=110 | total=6.8404 | trip_a=1.0001 | trip_s=2.0260 | adv_s=4.8321 | adv_a=2.8224
+[simple_improved_nonlinear_nogrl] epoch=336 | total=2.0018 | trip_a=1.0001 | trip_s=0.0032 | adv_s=5.0177 | adv_a=1.9430
+[simple_improved_linear_grl] epoch=246 | total=5.8559 | trip_a=1.0543 | trip_s=0.8910 | adv_s=4.6876 | adv_a=1.9160
+[simple_improved_linear_nogrl] epoch=842 | total=2.3905 | trip_a=1.0417 | trip_s=0.6142 | adv_s=5.0134 | adv_a=1.9778
+[adaptive3d_triplet_nonlinear_grl] epoch=115 | total=6.8411 | trip_a=1.0005 | trip_s=1.7854 | adv_s=4.8157 | adv_a=3.0791
+[adaptive3d_triplet_nonlinear_nogrl] epoch=455 | total=2.0015 | trip_a=1.0000 | trip_s=0.0029 | adv_s=5.0166 | adv_a=1.9233
+[adaptive3d_triplet_linear_grl] epoch=573 | total=5.4065 | trip_a=1.0669 | trip_s=0.4298 | adv_s=4.3170 | adv_a=1.7987
+[adaptive3d_triplet_linear_nogrl] epoch=999 | total=2.2117 | trip_a=1.0485 | trip_s=0.2294 | adv_s=5.0556 | adv_a=2.0083
+[adaptive3d_improved_nonlinear_grl] epoch=642 | total=5.2513 | trip_a=1.0001 | trip_s=0.3040 | adv_s=4.2660 | adv_a=1.9324
+[adaptive3d_improved_nonlinear_nogrl] epoch=407 | total=2.0001 | trip_a=1.0000 | trip_s=0.0001 | adv_s=5.0306 | adv_a=1.9607
+[adaptive3d_improved_linear_grl] epoch=999 | total=5.3956 | trip_a=1.0489 | trip_s=0.6773 | adv_s=4.1376 | adv_a=1.7806
+[adaptive3d_improved_linear_nogrl] epoch=716 | total=2.4256 | trip_a=1.0414 | trip_s=0.6856 | adv_s=5.0493 | adv_a=1.9019
+[adaptive1d_triplet_nonlinear_grl] epoch=51 | total=8.0558 | trip_a=1.0270 | trip_s=4.5251 | adv_s=4.9513 | adv_a=2.5274
+[adaptive1d_triplet_nonlinear_nogrl] epoch=696 | total=0.0053 | trip_a=0.0021 | trip_s=0.0024 | adv_s=5.0441 | adv_a=1.9380
+[adaptive1d_triplet_linear_grl] epoch=999 | total=5.1725 | trip_a=1.0394 | trip_s=0.2884 | adv_s=4.1196 | adv_a=1.7796
+[adaptive1d_triplet_linear_nogrl] epoch=999 | total=2.2034 | trip_a=1.0363 | trip_s=0.2614 | adv_s=5.0358 | adv_a=1.9785
+[adaptive1d_improved_nonlinear_grl] epoch=53 | total=7.5144 | trip_a=1.0222 | trip_s=3.8550 | adv_s=4.9377 | adv_a=2.1472
+[adaptive1d_improved_nonlinear_nogrl] epoch=399 | total=2.0008 | trip_a=1.0001 | trip_s=0.0012 | adv_s=5.0273 | adv_a=1.9422
+[adaptive1d_improved_linear_grl] epoch=868 | total=5.3758 | trip_a=1.0350 | trip_s=0.6834 | adv_s=4.1627 | adv_a=1.7655
+[adaptive1d_improved_linear_nogrl] epoch=904 | total=2.3728 | trip_a=1.0328 | trip_s=0.6143 | adv_s=5.0337 | adv_a=1.9299
+[sliding_triplet_nonlinear_grl] epoch=392 | total=3.4310 | trip_a=0.0399 | trip_s=0.2455 | adv_s=4.4861 | adv_a=1.9710
+[sliding_triplet_nonlinear_nogrl] epoch=779 | total=0.0009 | trip_a=0.0002 | trip_s=0.0008 | adv_s=5.0592 | adv_a=1.9367
+[sliding_triplet_linear_grl] epoch=999 | total=5.2488 | trip_a=1.0365 | trip_s=0.4431 | adv_s=4.1347 | adv_a=1.7738
+[sliding_triplet_linear_nogrl] epoch=999 | total=2.2460 | trip_a=1.0304 | trip_s=0.3702 | adv_s=5.0218 | adv_a=1.9785
+[sliding_improved_nonlinear_grl] epoch=725 | total=4.5253 | trip_a=0.7456 | trip_s=0.0638 | adv_s=4.1837 | adv_a=1.8209
+[sliding_improved_nonlinear_nogrl] epoch=960 | total=0.0188 | trip_a=0.0090 | trip_s=0.0016 | adv_s=5.0423 | adv_a=1.9457
+[sliding_improved_linear_grl] epoch=378 | total=5.7096 | trip_a=1.0446 | trip_s=0.8491 | adv_s=4.5499 | adv_a=1.8419
+[sliding_improved_linear_nogrl] epoch=720 | total=2.4204 | trip_a=1.0327 | trip_s=0.7100 | adv_s=5.0733 | adv_a=1.9761
+[animalkingdom_sliding_triplet_nonlinear_grl] epoch=530 | total=3.3480 | trip_a=0.0370 | trip_s=0.1199 | adv_s=4.5149 | adv_a=1.9133
+[animalkingdom_sliding_triplet_nonlinear_nogrl] epoch=745 | total=0.0014 | trip_a=0.0005 | trip_s=0.0008 | adv_s=5.0327 | adv_a=1.9300
+[animalkingdom_sliding_triplet_linear_grl] epoch=456 | total=5.6132 | trip_a=1.0570 | trip_s=0.6771 | adv_s=4.4545 | adv_a=1.8669
+[animalkingdom_sliding_triplet_linear_nogrl] epoch=999 | total=2.2352 | trip_a=1.0316 | trip_s=0.3439 | adv_s=5.0571 | adv_a=1.9582
+[animalkingdom_sliding_improved_nonlinear_grl] epoch=52 | total=8.3530 | trip_a=1.0253 | trip_s=4.7434 | adv_s=4.9511 | adv_a=2.9104
+[wolf_sliding_triplet_nonlinear_grl] epoch=51 | total=12.4315 | trip_a=1.0000 | trip_s=12.6611 | adv_s=4.9255 | adv_a=3.2763
+[wolf_sliding_triplet_nonlinear_nogrl] epoch=151 | total=2.5011 | trip_a=1.0001 | trip_s=1.0018 | adv_s=5.0165 | adv_a=1.9537
+[wolf_sliding_triplet_linear_grl] epoch=860 | total=5.9879 | trip_a=1.2328 | trip_s=1.1109 | adv_s=4.1373 | adv_a=1.7965
+[wolf_sliding_triplet_linear_nogrl] epoch=677 | total=3.0451 | trip_a=1.2422 | trip_s=1.1213 | adv_s=5.0646 | adv_a=1.9578
+[wolf_sliding_improved_nonlinear_grl] epoch=129 | total=9.0658 | trip_a=1.0001 | trip_s=7.3888 | adv_s=4.8077 | adv_a=1.9349
+[wolf_sliding_improved_nonlinear_nogrl] epoch=167 | total=2.4996 | trip_a=1.0001 | trip_s=0.9988 | adv_s=5.0086 | adv_a=1.9413
+[wolf_sliding_improved_linear_grl] epoch=979 | total=5.9043 | trip_a=1.1980 | trip_s=1.1041 | adv_s=4.1207 | adv_a=1.7920
+[wolf_sliding_improved_linear_nogrl] epoch=856 | total=2.9253 | trip_a=1.1810 | trip_s=1.1264 | adv_s=5.0253 | adv_a=2.0880
+[wolf_sliding_triplet_nonlinear_grl] epoch=51 | total=11.0720 | trip_a=1.0000 | trip_s=10.7817 | adv_s=4.9299 | adv_a=2.4323
+[wolf_sliding_triplet_nonlinear_nogrl] epoch=138 | total=2.4969 | trip_a=1.0002 | trip_s=0.9929 | adv_s=5.0087 | adv_a=1.9632
+[wolf_sliding_triplet_linear_grl] epoch=977 | total=5.9366 | trip_a=1.2223 | trip_s=1.0988 | adv_s=4.0939 | adv_a=1.7913
+[wolf_sliding_triplet_linear_nogrl] epoch=999 | total=2.9647 | trip_a=1.2163 | trip_s=1.0640 | adv_s=5.0419 | adv_a=1.9266
+[wolf_sliding_improved_nonlinear_grl] epoch=232 | total=7.3401 | trip_a=1.0209 | trip_s=3.9779 | adv_s=4.7440 | adv_a=1.8748
+[wolf_sliding_improved_nonlinear_nogrl] epoch=142 | total=2.4976 | trip_a=1.0001 | trip_s=0.9948 | adv_s=5.0230 | adv_a=1.9464
+[wolf_sliding_improved_linear_grl] epoch=999 | total=5.8838 | trip_a=1.1864 | trip_s=1.1222 | adv_s=4.1079 | adv_a=1.7919
+[wolf_sliding_improved_linear_nogrl] epoch=867 | total=2.9550 | trip_a=1.1971 | trip_s=1.1215 | adv_s=4.9851 | adv_a=1.9519
+[wolf_sliding_triplet_nonlinear_nogrl] epoch=137 | total=2.4984 | trip_a=1.0002 | trip_s=0.9960 | adv_s=5.0288 | adv_a=1.9400
+[wolf_sliding_triplet_nonlinear_grl] epoch=51 | total=10.8257 | trip_a=1.0000 | trip_s=9.8672 | adv_s=4.9041 | adv_a=2.8802
+[wolf_sliding_triplet_nonlinear_nogrl] epoch=136 | total=2.4987 | trip_a=1.0002 | trip_s=0.9967 | adv_s=5.0200 | adv_a=1.9517

@@ -10,12 +10,35 @@ import time  # ← これを追加
 
 
 # ------------------------
-# モデルとProcessorはグローバルで初期化
+# ✅ VideoMAE バージョン選択
 # ------------------------
+VMAE_VERSION = "base"   # "base", "v2-base", "v2-large"
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 decord.bridge.set_bridge("torch")
-processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base")
-model = VideoMAEModel.from_pretrained("MCG-NJU/videomae-base").to(device).eval()
+
+if VMAE_VERSION == "base":
+    print("✅ Using: MCG-NJU/videomae-base")
+    processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base")
+    model = VideoMAEModel.from_pretrained("MCG-NJU/videomae-base").to(device).eval()
+    MODEL_SUFFIX = "_base"
+
+elif VMAE_VERSION == "v2-base":
+    print("✅ Using: OpenGVLab/VideoMAEv2-Base")
+    processor = VideoMAEImageProcessor.from_pretrained("OpenGVLab/VideoMAEv2-Base")
+    model = VideoMAEModel.from_pretrained("OpenGVLab/VideoMAEv2-Base").to(device).eval()
+    MODEL_SUFFIX = "_v2_base"
+
+elif VMAE_VERSION == "v2-large":
+    print("✅ Using: OpenGVLab/VideoMAEv2-Large")
+    processor = VideoMAEImageProcessor.from_pretrained("OpenGVLab/VideoMAEv2-Large")
+    model = VideoMAEModel.from_pretrained("OpenGVLab/VideoMAEv2-Large").to(device).eval()
+    MODEL_SUFFIX = "_v2_large"
+
+else:
+    raise ValueError("❌ VMAE_VERSION must be one of: 'base', 'v2-base', 'v2-large'")
+
+
 
 def video_to_vec(path, n_frames=16):
     try:
@@ -94,9 +117,13 @@ def video_to_vec_sliding(path, n_frames=16, stride=1):
         return None
 
 
-def main(mode, csv_file, test=False, is24fps=True, stride=1):
+def main(mode, csv_file, test=False, is24fps=True, stride=1,datatype='animalkingdom'):
     start_time = time.time()
-    suffix = '_test' if test else ''
+
+    exec_subdir = "test" if test else "train"
+    os.makedirs(f"./exec/{datatype}/{exec_subdir}", exist_ok=True)
+
+
     fps_suffix = '_24fps' if is24fps else ''
     base_name = {
         'simple': 'vectors_simple',
@@ -106,8 +133,7 @@ def main(mode, csv_file, test=False, is24fps=True, stride=1):
     }[mode]
 
     
-    csv_stem = os.path.splitext(os.path.basename(csv_file))[0]
-    output_path = f'./exec/{base_name}_{csv_stem}{suffix}{fps_suffix}.json'
+    output_path = f'./exec/{datatype}/{exec_subdir}/{base_name}{fps_suffix}{MODEL_SUFFIX}.json'
 
     print(f"✅ 出力パス: {output_path}")
 
@@ -157,12 +183,23 @@ def main(mode, csv_file, test=False, is24fps=True, stride=1):
 
 
 if __name__ == "__main__":
-    modes = ['sliding']
-    stride = 1
-    csv = 'ucf_labels.csv'  # 固定で使用
-    test = False            # テスト用ではない
-    is24fps = False         # 24fpsでもない（必要に応じてTrueに）
+    modes = ['sliding'] # 'simple', '3d', '1d', 'sliding' のいずれかを選択
+    stride = 5
+    csv="./labels/wolf/train/labels.csv"
+
+    parts = csv.split(os.sep)
+    csv_filename = os.path.basename(csv)
+
+    if 'labels' in parts:
+        labels_idx = parts.index('labels')
+        datatype = parts[labels_idx + 1]
+        test = 'test' in parts
+        is24fps = "_24fps" in csv_filename
+
+        
+    else:
+        raise ValueError("❌ CSV パスに 'labels' が含まれていません。")
 
     for mode in modes:
         print(f"\n🚀 実行中: mode={mode}, test={test}, csv={csv}")
-        main(mode, csv, test=test, is24fps=is24fps, stride=stride)
+        main(mode, csv, test=test, is24fps=is24fps, stride=stride,datatype=datatype)

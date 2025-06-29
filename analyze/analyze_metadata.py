@@ -88,6 +88,10 @@ plt.savefig("./analyze/single_label_action_counts.png")
 # 2. 種（species）の出現数グラフ
 # -----------------------------
 species_counts = Counter(one_label_df["single_species"])
+print("種の出現数:", species_counts)
+
+lion_df = one_label_df[one_label_df["single_species"] == "Wolf"]
+print(lion_df["single_action"].value_counts())
 
 plt.figure(figsize=(10, 5))
 plt.bar(species_counts.keys(), species_counts.values(), color='green')

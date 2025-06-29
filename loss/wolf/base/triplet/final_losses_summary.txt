@@ -1,0 +1,4 @@
+[wolf_base_sliding_triplet_mlp_grl] epoch=51 | total=8.4575 | trip_a=1.0305 | trip_s=4.2173 | adv_s=4.9477 | adv_a=3.6281
+[wolf_base_sliding_triplet_mlp_nogrl] epoch=668 | total=0.0045 | trip_a=0.0013 | trip_s=0.0039 | adv_s=5.0044 | adv_a=1.9349
+[wolf_base_sliding_triplet_linear_grl] epoch=593 | total=5.4090 | trip_a=1.0461 | trip_s=0.4935 | adv_s=4.3289 | adv_a=1.8112
+[wolf_base_sliding_triplet_mlp_grl] epoch=51 | total=7.3809 | trip_a=1.0276 | trip_s=3.6518 | adv_s=4.9418 | adv_a=2.0579

@@ -1,16 +1,8 @@
 sliding/triplet - Action
-  ARI = 0.3691
-  NMI = 0.5324
+  ARI = 0.2281
+  NMI = 0.4140
 
 sliding/triplet - Species
-  ARI = 0.2747
-  NMI = 0.7458
-
-sliding/improved - Action
-  ARI = 0.3271
-  NMI = 0.4792
-
-sliding/improved - Species
-  ARI = 0.3747
-  NMI = 0.7939
+  ARI = 1.0000
+  NMI = 1.0000
 
