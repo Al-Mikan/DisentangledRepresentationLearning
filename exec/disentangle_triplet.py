@@ -1,5 +1,6 @@
 import os
 import json
+import traceback
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -94,9 +95,10 @@ def train_one(loss_type, mode, use_grl=True, use_mlp=False, datatype='animalking
     os.makedirs(dir_model, exist_ok=True)
     os.makedirs(dir_loss, exist_ok=True)
 
-    model_path = os.path.join(dir_model, f"{path_suffix}.pth")
-    loss_plot_path = os.path.join(dir_loss, f"{path_suffix}.png")
-    loss_log_path = os.path.join(dir_loss, "final_losses_summary.txt")
+    model_path = os.path.join(dir_model, f"{path_suffix}.pth").replace("\\", "/")
+    loss_plot_path = os.path.join(dir_loss, f"{path_suffix}.png").replace("\\", "/")
+    loss_log_path = os.path.join(dir_loss, "final_losses_summary.txt").replace("\\", "/")
+
 
     best_loss = float('inf')
     no_improve = 0
@@ -196,19 +198,26 @@ def train_one(loss_type, mode, use_grl=True, use_mlp=False, datatype='animalking
 
 # ====== 実行 ======
 def main():
-    vmae_version = "base" # "base", "v2-base", "v2-large"
-    all_modes = ['sliding'] # 'simple', 'adaptive3d', 'adaptive1d', 'sliding'
-    all_loss_types = ['triplet', 'improved']
-    datatype = 'wolf'
+    try:
+        vmae_version = "base" # "base", "v2-base", "v2-large"
+        all_modes = ['sliding'] # 'simple', 'adaptive3d', 'adaptive1d', 'sliding'
+        all_loss_types = ['triplet', 'improved']
+        datatype = 'wolf'
 
-    for mode in all_modes:
-        for loss_type in all_loss_types:
-            for use_mlp in [True, False]:
-                print(f"\n🚀 Training: mode={mode} | loss={loss_type} | {'mlp' if use_mlp else 'linear'} | GRL=ON | datatype={datatype}")
-                train_one(loss_type, mode, use_grl=True, use_mlp=use_mlp, datatype=datatype, vmae_version=vmae_version)
+        for mode in all_modes:
+            for loss_type in all_loss_types:
+                for use_mlp in [True, False]:
+                    print(f"\n🚀 Training: mode={mode} | loss={loss_type} | {'mlp' if use_mlp else 'linear'} | GRL=OFF | datatype={datatype}")
+                    train_one(loss_type, mode, use_grl=False, use_mlp=use_mlp, datatype=datatype, vmae_version=vmae_version)
 
-                print(f"\n🚀 Training: mode={mode} | loss={loss_type} | {'mlp' if use_mlp else 'linear'} | GRL=OFF | datatype={datatype}")
-                train_one(loss_type, mode, use_grl=False, use_mlp=use_mlp, datatype=datatype, vmae_version=vmae_version)
+                    print(f"\n🚀 Training: mode={mode} | loss={loss_type} | {'mlp' if use_mlp else 'linear'} | GRL=ON | datatype={datatype}")
+                    train_one(loss_type, mode, use_grl=True, use_mlp=use_mlp, datatype=datatype, vmae_version=vmae_version)
+
+
+    except BaseException as e:
+        tb = traceback.format_exc()
+        send_discord_message(f"❌ Training stopped:\n```{tb}```")
+        raise
 
 
 if __name__ == "__main__":
