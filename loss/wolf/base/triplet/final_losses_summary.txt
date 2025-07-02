@@ -11,3 +11,7 @@
 [wolf_base_sliding_triplet_mlp_grl] epoch=707 | total=3.1438 | trip_a=0.0075 | trip_s=0.0847 | adv_s=4.2192 | adv_a=1.9537
 [wolf_base_sliding_triplet_mlp_grl] epoch=719 | total=3.4673 | trip_a=0.0191 | trip_s=0.0484 | adv_s=4.9006 | adv_a=1.9090
 [wolf_base_sliding_triplet_mlp_nogrl] epoch=999 | total=0.0030 | trip_a=0.0013 | trip_s=0.0008 | adv_s=5.0316 | adv_a=1.9972
+[wolf_base_sliding_triplet_mlp-nogrl] epoch=584 | total=0.0029 | trip_a=0.0013 | trip_s=0.0008 | adv_s=5.0197 | adv_a=1.9509
+[wolf_base_sliding_triplet_mlp-grl] epoch=51 | total=7.2752 | trip_a=1.0288 | trip_s=3.5382 | adv_s=4.9126 | adv_a=1.9844
+[wolf_base_sliding_triplet_linear-nogrl] epoch=999 | total=2.1726 | trip_a=1.0262 | trip_s=0.2404 | adv_s=5.0339 | adv_a=1.9697
+[wolf_base_sliding_triplet_linear-grl] epoch=425 | total=5.6314 | trip_a=1.0603 | trip_s=0.6377 | adv_s=4.4439 | adv_a=1.9400

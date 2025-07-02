@@ -121,7 +121,7 @@ def main(mode, csv_file, test=False, is24fps=True, stride=1,datatype='animalking
     start_time = time.time()
 
     exec_subdir = "test" if test else "train"
-    os.makedirs(f"./exec/{datatype}/{exec_subdir}", exist_ok=True)
+    os.makedirs(f"./vector/{datatype}/{exec_subdir}", exist_ok=True)
 
 
     fps_suffix = '_24fps' if is24fps else ''
@@ -132,8 +132,8 @@ def main(mode, csv_file, test=False, is24fps=True, stride=1,datatype='animalking
         'sliding': 'vectors_sliding',
     }[mode]
 
-    
-    output_path = f'./exec/{datatype}/{exec_subdir}/{base_name}{fps_suffix}{MODEL_SUFFIX}.json'
+
+    output_path = f'./vector/{datatype}/{exec_subdir}/{base_name}{fps_suffix}{MODEL_SUFFIX}.json'
 
     print(f"✅ 出力パス: {output_path}")
 
@@ -185,21 +185,25 @@ def main(mode, csv_file, test=False, is24fps=True, stride=1,datatype='animalking
 if __name__ == "__main__":
     modes = ['sliding'] # 'simple', '3d', '1d', 'sliding' のいずれかを選択
     stride = 5
-    csv="./labels/wolf/train/labels.csv"
+    csv_list = ["./label/animalkingdom_split/train/labels.csv",
+                "./label/animalkingdom_split/test/labels_test.csv",] 
 
-    parts = csv.split(os.sep)
-    csv_filename = os.path.basename(csv)
+    for csv in csv_list:
+        parts = os.path.normpath(csv).split(os.sep)
+        csv_filename = os.path.basename(csv)
 
-    if 'labels' in parts:
-        labels_idx = parts.index('labels')
-        datatype = parts[labels_idx + 1]
-        test = 'test' in parts
-        is24fps = "_24fps" in csv_filename
+        if 'label' in parts:
+            labels_idx = parts.index('label')
+            datatype = parts[labels_idx + 1]
+            test = 'test' in parts
+            is24fps = "_24fps" in csv_filename
 
-        
-    else:
-        raise ValueError("❌ CSV パスに 'labels' が含まれていません。")
+            print(f"\n📂 datatype: {datatype}")
+            print(f"🔍 is test: {test}")
+            print(f"🎞 is 24fps: {is24fps}")
+        else:
+            raise ValueError("❌ CSV パスに 'labels' が含まれていません。")
 
-    for mode in modes:
-        print(f"\n🚀 実行中: mode={mode}, test={test}, csv={csv}")
-        main(mode, csv, test=test, is24fps=is24fps, stride=stride,datatype=datatype)
+        for mode in modes:
+            print(f"\n🚀 実行中: mode={mode}, test={test}, csv={csv}")
+            main(mode, csv, test=test, is24fps=is24fps, stride=stride, datatype=datatype)

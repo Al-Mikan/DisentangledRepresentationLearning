@@ -1,8 +1,0 @@
-sliding/triplet - Action
-  ARI = 0.2281
-  NMI = 0.4140
-
-sliding/triplet - Species
-  ARI = 1.0000
-  NMI = 1.0000
-

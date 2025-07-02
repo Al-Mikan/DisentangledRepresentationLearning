@@ -10,14 +10,14 @@ class ImprovedTripletLoss(nn.Module):
         self.beta = beta  # 重み係数
 
     def forward(self, anchor, positive, negative):
-        # L2距離
+        anchor = F.normalize(anchor, dim=-1)
+        positive = F.normalize(positive, dim=-1)
+        negative = F.normalize(negative, dim=-1)
+
         d_ap = F.pairwise_distance(anchor, positive, p=2)
         d_an = F.pairwise_distance(anchor, negative, p=2)
 
-        # inter-class constraint: d_ap - d_an + margin < 0 が理想
         inter = torch.clamp(d_ap - d_an + self.tau1, min=0.0)
-
-        # intra-class constraint: d_ap < tau2 が理想
         intra = torch.clamp(d_ap - self.tau2, min=0.0)
 
         loss = inter.mean() + self.beta * intra.mean()

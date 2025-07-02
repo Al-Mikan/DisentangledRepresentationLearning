@@ -63,11 +63,8 @@ def train_one(loss_type, mode, use_grl=True, use_mlp=False, datatype='animalking
         'sliding': 'vectors_sliding',
     }[mode]
 
-    if datatype == 'wolf':
+    if datatype:
         output_path = f'./vector/{datatype}/train/{base_name}_{vmae_version}.json'
-        csv_file = f"./label/{datatype}/train/labels.csv"
-    elif datatype == 'animalkingdom':
-        output_path = f'./vector/{datatype}/train/{base_name}.json'
         csv_file = f"./label/{datatype}/train/labels.csv"
     else:
         raise ValueError(f"Unknown datatype: {datatype}")
@@ -81,13 +78,13 @@ def train_one(loss_type, mode, use_grl=True, use_mlp=False, datatype='animalking
     net = (DisentangleNetMLP if use_mlp else DisentangleNetSimple)(D=768, H=256, A=A, S=S).cuda()
     opt = torch.optim.Adam(net.parameters(), lr=1e-4)
 
-    triplet_loss_fn = nn.TripletMarginLoss(margin=1.0, p=2) if loss_type == 'triplet' else ImprovedTripletLoss(tau1=1.0, tau2=0.5, beta=0.5)
+    triplet_loss_fn = nn.TripletMarginLoss(margin=0.1, p=2) if loss_type == 'triplet' else ImprovedTripletLoss(tau1=0.1, tau2=0.2, beta=0.5)
 
     ce_act = nn.CrossEntropyLoss()
     ce_sp = nn.CrossEntropyLoss()
 
     # ---- ログ & パス ----
-    path_suffix = f"{'mlp' if use_mlp else 'linear'}_{'grl' if use_grl else 'nogrl'}"
+    path_suffix = f"{'mlp' if use_mlp else 'linear'}-{'grl' if use_grl else 'nogrl'}"
     suffix = f"{datatype}_{vmae_version}_{mode}_{loss_type}_{path_suffix}"
 
     dir_model = f"./model/{datatype}/{vmae_version}/{loss_type}"
@@ -113,6 +110,9 @@ def train_one(loss_type, mode, use_grl=True, use_mlp=False, datatype='animalking
             grl_lambda = 1.0 if use_grl else 0.0
 
             a_vec, s_vec, s_pred_from_a, a_pred_from_s = net(z, grl_lambda=grl_lambda)
+
+            a_vec = nn.functional.normalize(a_vec, dim=-1)
+            s_vec = nn.functional.normalize(s_vec, dim=-1)
 
             anc_a, pos_a, neg_a = make_triplets_hard(a_vec, a)
             anc_s, pos_s, neg_s = make_triplets_hard(s_vec, s)
@@ -199,10 +199,10 @@ def train_one(loss_type, mode, use_grl=True, use_mlp=False, datatype='animalking
 # ====== 実行 ======
 def main():
     try:
-        vmae_version = "base" # "base", "v2-base", "v2-large"
+        vmae_version = "v2_base" # "base", "v2_base", "v2_large"
         all_modes = ['sliding'] # 'simple', 'adaptive3d', 'adaptive1d', 'sliding'
         all_loss_types = ['triplet', 'improved']
-        datatype = 'wolf'
+        datatype = 'animalkingdom'  # 'wolf', 'horse', 'animalkingdom'
 
         for mode in all_modes:
             for loss_type in all_loss_types:

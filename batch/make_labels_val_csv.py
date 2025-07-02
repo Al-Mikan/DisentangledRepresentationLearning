@@ -2,26 +2,22 @@ import pandas as pd
 import ast
 import csv
 import os
+import random
 from collections import Counter
 
-ACTION_MIN_COUNT = 50  # 出現数の閾値
-# === 設定 ===
+# === パラメータ ===
+ACTION_MIN_COUNT = 100  # アクション出現数の閾値
+TEST_RATIO = 0.2       # テストデータ比率
 csv_input_path = "./label/AR_metadata.csv"
-video_dir = "./video/animalkingdom"  # 動画のディレクトリ
-species_target = ""  # ← ここで抽出したい種を指定
+video_dir = "./video/animalkingdom"
 
 # === 出力パス ===
-if species_target:
-    csv_test = f"./label/{species_target.lower()}/test/labels_test.csv"
-    csv_train = f"./label/{species_target.lower()}/train/labels.csv"
-else:
-    csv_train = f"./label/animalkingdom_50/train/labels.csv"  # species_target が空のとき
-    csv_test = None  # 使わない
+csv_train = "./label/animalkingdom_split/train/labels.csv"
+csv_test = "./label/animalkingdom_split/test/labels_test.csv"
 
 # === 出力先ディレクトリ作成 ===
-if csv_test:
-    os.makedirs(os.path.dirname(csv_test), exist_ok=True)
 os.makedirs(os.path.dirname(csv_train), exist_ok=True)
+os.makedirs(os.path.dirname(csv_test), exist_ok=True)
 
 # === 入力読み込み ===
 df = pd.read_csv(csv_input_path)
@@ -49,29 +45,30 @@ for _, row in df.iterrows():
 action_counter = Counter([row[1] for row in temp_rows])
 valid_actions = {action for action, count in action_counter.items() if count >= ACTION_MIN_COUNT}
 
-final_rows = [row for row in temp_rows if row[1] in valid_actions]
+filtered_rows = [row for row in temp_rows if row[1] in valid_actions]
 
-# === 対象種とそれ以外で分割 ===
-species_rows = [row for row in final_rows if row[2] == species_target]
-other_rows = [row for row in final_rows if row[2] != species_target]
+# === シャッフルして train/test に分割 ===
+random.shuffle(filtered_rows)
+split_idx = int(len(filtered_rows) * (1 - TEST_RATIO))
+train_rows = filtered_rows[:split_idx]
+test_rows = filtered_rows[split_idx:]
 
 # === 書き出し ===
-if species_target:
-    with open(csv_test, "w", newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(["video_path", "action", "species", "parent_class"])
-        writer.writerows(species_rows)
-
 with open(csv_train, "w", newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
     writer.writerow(["video_path", "action", "species", "parent_class"])
-    writer.writerows(other_rows)
+    writer.writerows(train_rows)
 
-print(f"✅ {species_target} test用 CSV: {len(species_rows)} 件 → {csv_test}")
-print(f"✅ train用 CSV: {len(other_rows)} 件 → {csv_train}")
+with open(csv_test, "w", newline='', encoding='utf-8') as f:
+    writer = csv.writer(f)
+    writer.writerow(["video_path", "action", "species", "parent_class"])
+    writer.writerows(test_rows)
+
+print(f"✅ Train CSV: {len(train_rows)} 件 → {csv_train}")
+print(f"✅ Test CSV:  {len(test_rows)} 件 → {csv_test}")
 
 # === 使用された action ラベル一覧 ===
-used_actions = sorted({row[1] for row in final_rows})
+used_actions = sorted({row[1] for row in filtered_rows})
 print("\n🔍 使用された Action ラベル一覧:")
 for action in used_actions:
     print(f"・{action}")
