@@ -1,6 +1,5 @@
 import os
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -14,301 +13,265 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import KMeans
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 from umap import UMAP
+from tqdm import tqdm
 
 from model import (
     GatedFusion,
-    DisentangleEmbedOnlySimple,
-    DisentangleEmbedOnlyMLP
+    ActionLinearNet, ActionMLPNet, 
 )
-
 # =============== CONFIG ===============
+def setup_environment():
+    os.environ["OMP_NUM_THREADS"] = "2"
+    torch.set_grad_enabled(False)
 
-os.environ["OMP_NUM_THREADS"] = "2"
-
-
-# =============== UTILS ===============
-def ensure_dirs(*paths: Path) -> None:
-    for p in paths:
-        p.mkdir(parents=True, exist_ok=True)
-
-
-def load_labels(cfg: Dict[str, object]) -> pd.DataFrame:
-    dtype = cfg["DATASET_NAME"]
-    if dtype == "animalkingdom":
-        df_train = pd.read_csv(Path("label") / dtype / "train" / "labels_filtered.csv")
-    else:
-        df_train = pd.read_csv(Path("label") / dtype / "train" / "labels.csv")
-
-    suffix = "_24fps" if cfg["USE_24FPS"] else ""
-    df_test = pd.read_csv(Path("label") / dtype / "test" / f"labels_test{suffix}.csv")
-    df_train["video_path"] = df_train["video_path"].str.replace("\\", "/")
-    df_test["video_path"] = df_test["video_path"].str.replace("\\", "/")
+def load_all_labels(train_csv_path: Path, test_csv_path: Path) -> Tuple[pd.DataFrame, LabelEncoder]:
+    """訓練・テストのラベルを読み込み、source列を追加して結合する"""
+    df_train = pd.read_csv(train_csv_path)
+    df_test = pd.read_csv(test_csv_path)
     df_train["source"] = "train"
     df_test["source"] = "test"
-    if cfg["DATA_MODE"] == "train":
-        return df_train.copy()
-    elif cfg["DATA_MODE"] == "test":
-        return df_test.copy()
+    
+    full_df = pd.concat([df_train, df_test], ignore_index=True)
+    full_df["video_path"] = full_df["video_path"].str.replace("\\", "/").str.strip()
+    
+    le_act = LabelEncoder().fit(full_df["action"])
+    full_df["act_id"] = le_act.transform(full_df["action"])
+    
+    return full_df, le_act
+
+def load_all_features(df: pd.DataFrame, feature_dirs: Dict[str, Path], vmae_json_path: Path) -> Dict[str, Dict]:
+    """必要な特徴量(flow, x3d, vmae)をすべてメモリに読み込む"""
+    features = {"flow": {}, "x3d": {}, "vmae": {}}
+    
+    # VMAE
+    if vmae_json_path.exists():
+        with open(vmae_json_path, 'r') as f:
+            features["vmae"] = json.load(f)
+            
+    # X3D / Flow
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="Loading features"):
+        path_str = row["video_path"]
+        vid = Path(path_str).stem
+        for key in ["flow", "x3d"]:
+            npy_path = feature_dirs[key] / vid / f"{vid}.npy"
+            if npy_path.exists():
+                arr = np.load(npy_path)
+                features[key][path_str] = arr.squeeze(0) if arr.ndim > 1 else arr
+    return features
+
+
+# ================================================================
+# 2. モデル構築と特徴抽出 (整理)
+# ================================================================
+def build_and_load_encoder(job: Dict, D: int) -> nn.Module:
+    use_mlp = job.get("use_mlp", False)
+    encoder_cls = ActionMLPNet if use_mlp else ActionLinearNet
+    encoder = encoder_cls(D, 256, 256) if use_mlp else encoder_cls(D, 256)
+    
+    # state_dictのロードはjobにfusionキーがあるかで分岐
+    state_dict = torch.load(job["checkpoint_path"])
+    if 'fusion' in state_dict:
+        encoder.load_state_dict(state_dict['net'])
     else:
-        return pd.concat([df_train, df_test], ignore_index=True)
+        # SimpleNet/ActionNetのstate_dictを直接ロード
+        # 注意: Simple... と Action... のネットワーク構造が互換性を持つ必要がある
+        encoder.load_state_dict(state_dict.get('net', state_dict.get('action_encoder', state_dict)))
+        
+    return encoder.cuda().eval()
 
-
-def build_encoder(use_mlp: bool, D: int, H=256):
-    cls = DisentangleEmbedOnlyMLP if use_mlp else DisentangleEmbedOnlySimple
-    return cls(D=D, H=H).cuda().eval()
-
-
-def build_gated_infer(use_mlp: bool, d_x3d=2048, d_vmae=768, d_hidden=512, D=512, H=256):
-    fusion = GatedFusion(d_x3d, d_vmae, d_hidden).cuda().eval()
-    encoder_cls = DisentangleEmbedOnlyMLP if use_mlp else DisentangleEmbedOnlySimple
-    encoder = encoder_cls(D=D, H=H).cuda().eval()
-    return fusion, encoder
-
-
-# =============== LOADERs ===============
-def load_flow(cfg: Dict[str, object], suffix_24fps: str) -> Dict[str, np.ndarray]:
-    dtype = cfg["DATASET_NAME"]
-    flow_dir_train = Path("x3d_output") / dtype / "train"
-    flow_dir_test = Path("x3d_output") / dtype / "test"
-    dtype = cfg["DATASET_NAME"]
-    if dtype == "animalkingdom":
-        df_train = pd.read_csv(Path("label") / dtype / "train" / "labels_filtered.csv")
-    else:
-        df_train = pd.read_csv(Path("label") / dtype / "train" / "labels.csv")
-    df_test = pd.read_csv(Path("label") / dtype / "test" / f"labels_test{suffix_24fps}.csv")
-    df = pd.concat([df_train, df_test], ignore_index=True)
-    flow_dict = {}
+def extract_embeddings(df: pd.DataFrame, features: Dict, model: nn.Module, mode: str, fusion_model: nn.Module = None) -> Tuple:
+    emb_list, labels, sources = [], [], []
+    
     for _, row in df.iterrows():
-        path = row["video_path"].replace("\\", "/").strip()
-        vid = Path(path).stem
-        npy = flow_dir_train / vid / f"{vid}.npy"
-        if not npy.exists():
-            npy = flow_dir_test / vid / f"{vid}.npy"
-        if npy.exists():
-            arr = np.load(npy)
-            flow_dict[path] = arr.squeeze(0) if arr.ndim > 1 else arr
-    return flow_dict
+        path = row["video_path"]
+        
+        # モードに応じて入力を準備
+        if mode == 'flow':
+            if path not in features['flow']: continue
+            x = torch.tensor(features['flow'][path]).unsqueeze(0).float().cuda()
+        elif mode == 'mae':
+            if path not in features['vmae']: continue
+            x = torch.tensor(features['vmae'][path]).unsqueeze(0).float().cuda()
+        elif mode == 'gated':
+            if path not in features['x3d'] or path not in features['vmae']: continue
+            x3d = torch.tensor(features['x3d'][path]).unsqueeze(0).float().cuda()
+            vmae = torch.tensor(features['vmae'][path]).unsqueeze(0).float().cuda()
+            x, _ = fusion_model(x3d, vmae)
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
 
-
-def load_vectors(cfg: Dict[str, object], mode: str, suffix_24fps: str) -> Dict[str, List[float]]:
-    dtype = cfg["DATASET_NAME"]
-    vmae = cfg["VMAE_VERSION"]
-    vecs = {}
-    train = Path("vector") / dtype / "train" / f"vectors_{mode}_{vmae}.json"
-    test = Path("vector") / dtype / "test" / f"vectors_{mode}{suffix_24fps}_{vmae}.json"
-    for path in [train, test]:
-        if path.exists():
-            vecs.update(json.loads(path.read_text()))
-    return vecs
-
-
-# =============== EXTRACT ===============
-def extract_flow(flow_dict: Dict[str, np.ndarray], df: pd.DataFrame, encoder) -> Tuple[torch.Tensor, List[int], List[str], List[str]]:
-    emb_list, labels, paths, sources = [], [], [], []
-    with torch.no_grad():
-        for _, row in df.iterrows():
-            path = row["video_path"]
-            if path not in flow_dict:
-                continue
-            z = torch.tensor(flow_dict[path]).unsqueeze(0).float().cuda()
-            z = nn.functional.normalize(z, dim=-1)
-            a_vec, _ = encoder(z)
-            emb_list.append(a_vec.squeeze(0).cpu())
-            labels.append(row["act_id"])
-            paths.append(path)
-            sources.append(row["source"])
-    return torch.stack(emb_list), labels, paths, sources
-
-
-def extract_mae(vecs, df, encoder):
-    emb_list, labels, paths, sources = [], [], [], []
-    with torch.no_grad():
-        for _, row in df.iterrows():
-            path = row["video_path"]
-            if path not in vecs:
-                continue
-            z = torch.tensor(vecs[path]).unsqueeze(0).float().cuda()
-            a_vec, _ = encoder(z)
-            emb_list.append(a_vec.squeeze(0).cpu())
-            labels.append(row["act_id"])
-            paths.append(path)
-            sources.append(row["source"])
-    return torch.stack(emb_list), labels, paths, sources
-
-
-def extract_gated(x3d_dict, vmae_dict, df, fusion, encoder):
-    emb_list, labels, paths, sources = [], [], [], []
-    with torch.no_grad():
-        for _, row in df.iterrows():
-            path = row["video_path"]
-            if path not in x3d_dict or path not in vmae_dict:
-                continue
-            x3d = torch.tensor(x3d_dict[path]).unsqueeze(0).float().cuda()
-            vmae = torch.tensor(vmae_dict[path]).unsqueeze(0).float().cuda()
-            fused, _ = fusion(x3d, vmae)
-            fused = nn.functional.normalize(fused, dim=-1)
-            a_vec, _ = encoder(fused)
-            emb_list.append(a_vec.squeeze(0).cpu())
-            labels.append(row["act_id"])
-            paths.append(path)
-            sources.append(row["source"])
-    return torch.stack(emb_list), labels, paths, sources
-
+        a_vec = model(x)
+        emb_list.append(nn.functional.normalize(a_vec, dim=-1).squeeze(0).cpu())
+        labels.append(row["act_id"])
+        sources.append(row["source"])
+        
+    return torch.stack(emb_list), labels, sources
 
 # =============== CLUSTERING ===============
-def evaluate(X: torch.Tensor, labels: List[int], variant: str, out_dir: Path) -> Tuple[float, float]:
+def evaluate_clustering(X: torch.Tensor, labels: List[int]) -> Tuple[float, float]:
     X_np = X.numpy()
     true_k = len(set(labels))
-    pred = KMeans(true_k, random_state=0).fit_predict(X_np)
+    pred = KMeans(n_clusters=true_k, random_state=0, n_init='auto').fit_predict(X_np)
     ari = adjusted_rand_score(labels, pred)
     nmi = normalized_mutual_info_score(labels, pred)
-    print(f"[{variant}] ARI={ari:.4f}, NMI={nmi:.4f}")
     return ari, nmi
 
 
-def visualize(X, labels, encoder, paths, sources, cfg, variant, ari, nmi):
-    for method in cfg["VISUALIZE"]:
-        proj = TSNE(n_components=2).fit_transform(X) if method == "tsne" else UMAP().fit_transform(X)
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.set_title(f"{variant} {method.upper()} ARI={ari:.4f} NMI={nmi:.4f}")
-        cmap = plt.get_cmap("tab20")
-        for lbl in np.unique(labels):
-            mask = np.array(labels) == lbl
-            ax.scatter(proj[mask, 0], proj[mask, 1], s=10, label=f"{encoder.classes_[lbl]}")
-        ax.legend()
-        path = Path("result") / variant
-        ensure_dirs(path)
-        plt.savefig(path / f"{method}.png")
-        plt.close()
+def visualize_embeddings(
+    embeddings: torch.Tensor,
+    labels: List[int],
+    sources: List[str],
+    label_encoder: LabelEncoder,
+    title: str,
+    out_path: Path
+):
+    """
+    Args:
+        embeddings (torch.Tensor): (N, D)次元の埋め込みベクトル。
+        labels (List[int]): 各ベクトルの行動ラベルID。
+        sources (List[str]): 各ベクトルの出所 ('train' or 'test')。
+        label_encoder (LabelEncoder): ラベルIDとクラス名を対応させるエンコーダ。
+        title (str): グラフのタイトル。
+        out_path (Path): 画像の保存先パス。
+    """
+    print(f"Visualizing embeddings with t-SNE... Saving to {out_path}")
+    
+    # --- 1. 次元削減 ---
+    tsne = TSNE(n_components=2, random_state=42, perplexity=30, n_iter=1000)
+    proj = tsne.fit_transform(embeddings.numpy())
+
+    # --- 2. 描画の準備 ---
+    fig, ax = plt.subplots(figsize=(12, 10))
+    ax.set_title(title, fontsize=16)
+    cmap = plt.get_cmap("tab20")
+    
+    labels_np = np.array(labels)
+    sources_np = np.array(sources)
+    
+    # --- 3. クラスごとに描画 ---
+    for class_id in np.unique(labels_np):
+        class_name = label_encoder.classes_[class_id]
+        color = cmap(class_id % 20)
+        
+        # 訓練データをプロット (半透明の円)
+        train_mask = (labels_np == class_id) & (sources_np == 'train')
+        if np.any(train_mask):
+            ax.scatter(
+                proj[train_mask, 0], proj[train_mask, 1],
+                color=color, marker='o', s=20, alpha=0.3,
+                label=f"{class_name} (Train)"
+            )
+            
+        # テストデータをプロット (枠付きの三角)
+        test_mask = (labels_np == class_id) & (sources_np == 'test')
+        if np.any(test_mask):
+            ax.scatter(
+                proj[test_mask, 0], proj[test_mask, 1],
+                color=color, marker='^', s=80, alpha=1.0,
+                edgecolors='black', linewidths=0.5,
+                label=f"{class_name} (Test)"
+            )
+
+    # --- 4. 凡例とレイアウト調整 ---
+    ax.legend(
+        markerscale=1.5,
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        fontsize=10
+    )
+    fig.tight_layout(rect=[0, 0, 0.85, 1])
+    
+    # --- 5. 保存 ---
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=150)
+    plt.close(fig)
+
 
 
 # =============== MAIN ===============
-def main(cfg: Dict[str, object]) -> None:
-    df = load_labels(cfg)
-    le_act = LabelEncoder().fit(df["action"])
-    df["act_id"] = le_act.transform(df["action"])
+def main():
+    setup_environment()
 
-    # --- ベスト結果を複数保持 ---
+    # --- 基本設定 ---
+    DATATYPE = "animalkingdom"
+    train_csv = Path(f"./label/{DATATYPE}/train/train.csv") # 分割済みのCSVを想定
+    test_csv = Path(f"./label/{DATATYPE}/test/labels_test.csv")
+    
+    feature_dirs = {
+        "flow": Path(f"x3d_output/{DATATYPE}"),
+        "x3d": Path(f"x3d_output/{DATATYPE}"),
+    }
+    vmae_json = Path(f"vector/{DATATYPE}/train/vectors_sliding_base.json")
+    
+    # --- データの事前読み込み ---
+    full_df, le_act = load_all_labels(train_csv, test_csv)
+    features = load_all_features(full_df, feature_dirs, vmae_json)
+
+    # --- ✨評価したいモデルのリストをここで定義 ---
+    # Optunaで見つけたベストモデルや、比較したいモデルの情報を辞書として追加する
+    evaluation_jobs = [
+        {
+            "name": "Flow_MLP_Simple",
+            "mode": "flow", "use_mlp": True,
+            "checkpoint_path": "models/flow/animalkingdom/improved/simple_mlp_la1.0_ls0.00.pth"
+        },
+        {
+            "name": "Gated_MLP_Adversarial",
+            "mode": "gated", "use_mlp": True,
+            "checkpoint_path": "models/gated/animalkingdom/improved/adv_mlp_la1.0_ls0.20.pth"
+        },
+        # 他に評価したいモデルがあればここに追加
+    ]
+
     results = []
+    for job in evaluation_jobs:
+        print(f"\n===== Evaluating: {job['name']} =====")
+        mode = job['mode']
+        
+        # モデル構築 & 重みロード
+        fusion_model = None
+        if mode == 'gated':
+            fusion_model = GatedFusion(2048, 768, 512).cuda().eval()
+            state_dict = torch.load(job['checkpoint_path'])
+            if 'fusion' in state_dict: fusion_model.load_state_dict(state_dict['fusion'])
+            D = 512
+        elif mode == 'flow':
+            D = 2048 # Flowの特徴次元数
+        elif mode == 'mae':
+            D = 768 # MAEの特徴次元数
+            
+        encoder = build_and_load_encoder(job, D)
+        
+        # 特徴抽出
+        a_vecs, labels, sources = extract_embeddings(full_df, features, encoder, mode, fusion_model)
+        
+        # 評価
+        ari, nmi = evaluate_clustering(a_vecs, labels)
+        print(f"ARI={ari:.4f}, NMI={nmi:.4f}")
 
-    for mode in cfg["MODE"]:
-        for loss in cfg["LOSS_FUNCTION"]:
-            for suffix in cfg["SUFFIXES"]:
-                for adv in cfg["ADV"]:
-                    suffix_24fps = "_24fps" if cfg["USE_24FPS"] else ""
-                    adv_str = f"-adv{adv:.2f}"
-                    variant = f"{suffix}{adv_str}{suffix_24fps}"
-                    print(f"=== {variant} ===")
+        out_dir = Path("results") / job['mode']
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{job['name']}_tsne.png"
 
-                    if mode == "flow":
-                        flow = load_flow(cfg, suffix_24fps)
-                        D = next(iter(flow.values())).shape[0]
-                        encoder = build_encoder("mlp" in suffix, D)
-                        encoder.load_state_dict(torch.load(Path("models") / "model_flow" / cfg["DATASET_NAME"] / loss / f"flow_{suffix}{adv_str}.pth", weights_only=True), strict=False)
-                        df_valid = df[df["video_path"].isin(flow)].copy()
-                        a_vecs, labels, paths, sources = extract_flow(flow, df_valid, encoder)
+        title = f"t-SNE for {job['name']}\nNMI: {nmi:.4f}, ARI: {ari:.4f}"
+        
+        # 可視化
+        visualize_embeddings(
+            embeddings=a_vecs,
+            labels=labels,
+            sources=sources,
+            label_encoder=le_act,
+            title=title,
+            out_path=out_path
+        )
+        
+        results.append({"name": job['name'], "ari": ari, "nmi": nmi})
 
-                    elif mode == "mae":
-                        vecs = load_vectors(cfg, cfg["VECTOR_MODES"][0], suffix_24fps)
-                        encoder = build_encoder("mlp" in suffix, D=768)
-                        encoder.load_state_dict(torch.load(Path("models") / "model_mae" / cfg["DATASET_NAME"] / loss / f"mae_{suffix}{adv_str}.pth", weights_only=True), strict=False)
-                        df_valid = df[df["video_path"].isin(vecs)].copy()
-                        a_vecs, labels, paths, sources = extract_mae(vecs, df_valid, encoder)
-
-                    elif mode == "gated":
-                        vecs = load_vectors(cfg, cfg["VECTOR_MODES"][0], suffix_24fps)
-                        x3d_dir_train = Path("x3d_output") / cfg["DATASET_NAME"] / "train"
-                        x3d_dir_test = Path("x3d_output") / cfg["DATASET_NAME"] / "test"
-                        x3d_dict = {}
-                        for path in vecs:
-                            vid = Path(path).stem
-                            npy = x3d_dir_train / vid / f"{vid}.npy"
-                            if not npy.exists():
-                                npy = x3d_dir_test / vid / f"{vid}.npy"
-                            if npy.exists():
-                                arr = np.load(npy)
-                                x3d_dict[path] = arr.squeeze(0) if arr.ndim > 1 else arr
-                        fusion, encoder = build_gated_infer("mlp" in suffix)
-                        model_path = Path("models") / "model_gated" / cfg["DATASET_NAME"] / loss / f"gated_{suffix}{adv_str}.pth"
-                        ckpt = torch.load(model_path, weights_only=True)
-                        fusion.load_state_dict(ckpt["fusion"], strict=False)
-                        encoder.load_state_dict(ckpt["net"], strict=False)
-                        df_valid = df[df["video_path"].isin(x3d_dict) & df["video_path"].isin(vecs)].copy()
-                        a_vecs, labels, paths, sources = extract_gated(x3d_dict, vecs, df_valid, fusion, encoder)
-
-                    else:
-                        raise ValueError(f"Unsupported MODE: {mode}")
-
-                    out_dir = (
-                        Path("result")
-                        / mode
-                        / cfg["DATASET_NAME"]
-                        / loss
-                        / cfg["DATA_MODE"]
-                        / variant
-                    )
-                    ensure_dirs(out_dir)
-                    ari, nmi = evaluate(a_vecs, labels, variant, out_dir)
-                    visualize(a_vecs, labels, le_act, paths, sources, cfg, variant, ari, nmi)
-
-                    results.append({
-                        "ari": ari,
-                        "nmi": nmi,
-                        "mode": mode,
-                        "loss": loss,
-                        "suffix": suffix,
-                        "variant": variant,
-                        "adv": adv,
-                        "dataset": cfg["DATASET_NAME"],
-                        "data_mode": cfg["DATA_MODE"],
-                        "vector_mode": cfg["VECTOR_MODES"][0]
-                    })
-
-        # --- 上位5件を NMI でソート ---
-    results_sorted = sorted(results, key=lambda x: (x["nmi"], x["ari"]), reverse=True)[:5]
-    results_sorted_all = sorted(results, key=lambda x: (x["nmi"], x["ari"]), reverse=True)
-
-
-    print("\n=== ✅ TOP 5 RESULTS ===")
-    for i, r in enumerate(results_sorted, 1):
-        print(f"[Rank {i}] NMI={r['nmi']:.4f} | ARI={r['ari']:.4f}")
-        print(f"  MODE   : {r['mode']}")
-        print(f"  LOSS   : {r['loss']}")
-        print(f"  SUFFIX : {r['suffix']}")
-        print(f"  ADV    : {r['adv']}")
-        print(f"  VECTOR : {r['vector_mode']}")
-        print(f"  DATA   : {r['dataset']} | {r['data_mode']}")
-        print(f"  VARIANT: {r['variant']}\n")
-    # === テキストに保存 ===
-    txt_out_path = Path("results") / "result_summary_all.txt"
-    ensure_dirs(txt_out_path.parent)
-    with open(txt_out_path, "w") as f:
-        for i, r in enumerate(results_sorted_all, 1):
-            f.write(f"[Rank {i}] NMI={r['nmi']:.4f} | ARI={r['ari']:.4f}\n")
-            f.write(f"  MODE   : {r['mode']}\n")
-            f.write(f"  LOSS   : {r['loss']}\n")
-            f.write(f"  SUFFIX : {r['suffix']}\n")
-            f.write(f"  ADV    : {r['adv']}\n")
-            f.write(f"  VECTOR : {r['vector_mode']}\n")
-            f.write(f"  DATA   : {r['dataset']} | {r['data_mode']}\n")
-            f.write(f"  VARIANT: {r['variant']}\n\n")
-    print(f"✅ TXT saved to: {txt_out_path.resolve()}")
-
-
+    # --- 最終結果の表示 ---
+    print("\n\n===== FINAL RESULTS =====")
+    results_df = pd.DataFrame(results).sort_values(by="nmi", ascending=False)
+    print(results_df)
+    results_df.to_csv("results/final_evaluation_summary.csv", index=False)
 
 if __name__ == "__main__":
-
-    CONFIG: Dict[str, object] = {
-        "MODE": ["mae", "flow", "gated"],  # 実行するモードをリストで
-        "VECTOR_MODES": ["sliding"],
-        "LOSS_FUNCTION": ["improved", "triplet"],
-        "SUFFIXES": ["mlp-grl", "linear-grl", "mlp-nogrl", "linear-nogrl"],
-        "VISUALIZE": ["tsne", "umap"],
-        "VMAE_VERSION": "base",
-        "DATA_MODE": "test",
-        "USE_24FPS": True,
-        "DATASET_NAME": "animalkingdom",
-        "ADV": [0.10, 0.05],  # adversarial lossの係数
-    }
-    torch.set_grad_enabled(False)
-    main(CONFIG)
+    main()

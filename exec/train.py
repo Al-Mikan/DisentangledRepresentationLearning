@@ -1,37 +1,45 @@
 import os
-import json
-import traceback
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from torch import nn
-import matplotlib.pyplot as plt
-import requests
+from tqdm import tqdm
+import wandb
+import optuna
 from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
 
+# 必要なファイルをインポート
+from utils import FlowNpyDataset, X3DVideoMAEDataset, MAEDataset
 from model import (
-    DisentangleNetMLP,
-    DisentangleNetSimple,
-    GatedFusion,
-    load_data,
-    create_dataloader,
+    SimpleLinearNet, SimpleMLPNet, ActionLinearNet, ActionMLPNet,
+    SpeciesDiscriminator, GatedFusion
 )
-from improved_triplet_loss import ImprovedTripletLoss
+from triplet_losses import ImprovedTripletLoss, CosineTripletLoss
+from pytorch_metric_learning import losses
 
-# ====== 共通定数 ======
-LAMBDA_ACTION = 2.0
-LAMBDA_SPECIES = 0.5
-LAMBDA_ADV = 0.05
-WEBHOOK_URL = "https://discord.com/api/webhooks/1392755117576556624/uhRwB1_5v90a-0A1JDspuCelrnIJxr93mOMyBt6S5kM2kGjXJsjEc5kOE3NVaCMxEQSI"
+# PyTorchの高速化設定
+try:
+    torch.set_float32_matmul_precision('high')
+except AttributeError:
+    print("Warning: torch.set_float32_matmul_precision is not available in this PyTorch version. Skipping.")
 
 
-def send_discord_message(message: str):
-    payload = {"content": message}
-    response = requests.post(WEBHOOK_URL, json=payload)
-    if response.status_code != 204:
-        print("❌ Discord通知に失敗:", response.status_code, response.text)
+# --- 損失関数の定義 ---
+LOSS_FN_MAP = {
+    "improved": ImprovedTripletLoss,
+    "cosine": CosineTripletLoss,
+    "default": lambda: nn.TripletMarginLoss(0.1),
+    "supcon": losses.SupConLoss
+}
 
+def get_loss_fn(loss_type, temperature=0.07):
+    """損失関数のインスタンスを取得する"""
+    if loss_type == "supcon":
+        return LOSS_FN_MAP[loss_type](temperature=temperature)
+    return LOSS_FN_MAP.get(loss_type, LOSS_FN_MAP["default"])()
 
 def make_triplets_hard(vectors, labels):
     anchors, positives, negatives = [], [], []
@@ -42,252 +50,241 @@ def make_triplets_hard(vectors, labels):
         pos_idx = torch.where(labels == label)[0]
         neg_idx = torch.where(labels != label)[0]
         pos_idx = pos_idx[pos_idx != i]
-        if len(pos_idx) == 0 or len(neg_idx) == 0:
-            continue
+        if len(pos_idx) == 0 or len(neg_idx) == 0: continue
         hardest_pos = pos_idx[torch.argmax(dists[i, pos_idx])]
         hardest_neg = neg_idx[torch.argmin(dists[i, neg_idx])]
-        anchors.append(vectors[i])
-        positives.append(vectors[hardest_pos])
-        negatives.append(vectors[hardest_neg])
-    if not anchors:
-        return None, None, None
+        anchors.append(vectors[i]); positives.append(vectors[hardest_pos]); negatives.append(vectors[hardest_neg])
+    if not anchors: return None, None, None
     return torch.stack(anchors), torch.stack(positives), torch.stack(negatives)
 
-# ====== Flow-only Dataset ======
-class FlowNpyDataset(Dataset):
-    def __init__(self, csv_path, flow_dir):
-        self.df = pd.read_csv(csv_path)
-        self.flow_dir = flow_dir
-        valid = []
-        for idx, row in self.df.iterrows():
-            video_id = os.path.splitext(os.path.basename(row['video_path']))[0]
-            npy = os.path.join(flow_dir, video_id, f"{video_id}.npy")
-            if os.path.isfile(npy):
-                valid.append(idx)
-        self.df = self.df.loc[valid].reset_index(drop=True)
-        self.le_act = LabelEncoder().fit(self.df['action'])
-        self.le_sp = LabelEncoder().fit(self.df['species'])
-        self.df['act_id'] = self.le_act.transform(self.df['action'])
-        self.df['sp_id'] = self.le_sp.transform(self.df['species'])
+def train_step(models, batch, loss_fn, optimizers, config, le_sp):
+    for model in models.values(): model.train()
 
-    def __len__(self): return len(self.df)
+    if config['train_mode'] == 'gated':
+        x3d, vmae, a, s = [b.long().cuda() if i >= 2 else b.cuda() for i, b in enumerate(batch)]
+        fused, _ = models['fusion'](x3d, vmae); x = fused
+    else:
+        x, a, s = [b.long().cuda() if i >= 1 else b.cuda() for i, b in enumerate(batch)]
 
-    def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-        video_id = os.path.splitext(os.path.basename(row['video_path']))[0]
-        flow_vec = np.load(os.path.join(self.flow_dir, video_id, f"{video_id}.npy")).squeeze(0)
-        return torch.tensor(flow_vec, dtype=torch.float32), int(row['act_id']), int(row['sp_id'])
+    if config['use_adversarial']:
+        action_encoder = models['action_encoder']
+        discriminator = models['discriminator']
+        optimizer_disc = optimizers['discriminator']
+        
+        optimizer_disc.zero_grad()
+        with torch.no_grad():
+            a_vec_detached = action_encoder(x).detach()
+        logits = discriminator(a_vec_detached)
+        ce_loss = nn.CrossEntropyLoss()(logits, s)
+        ce_loss.backward()
+        optimizer_disc.step()
+    
+    main_optimizer = optimizers.get('encoder') or optimizers.get('main')
+    main_optimizer.zero_grad()
+    
+    encoder = models['action_encoder'] if 'action_encoder' in models else models['net']
+    a_vec = encoder(x)
+    
+    if config['loss_type'] == 'supcon':
+        main_loss = loss_fn(a_vec, a)
+    else:
+        a_vec_norm = nn.functional.normalize(a_vec, dim=-1)
+        anc, pos, neg = make_triplets_hard(a_vec_norm, a)
+        if anc is None: return None
+        main_loss = loss_fn(anc, pos, neg)
+
+    total_loss = main_loss
+    if config['use_adversarial']:
+        logits = discriminator(a_vec)
+        log_probs = nn.functional.log_softmax(logits, dim=1)
+        uniform_target = torch.full_like(logits, 1.0 / len(le_sp.classes_))
+        adv_loss = nn.KLDivLoss(reduction='batchmean')(log_probs, uniform_target)
+        total_loss += config['lambda_adv'] * adv_loss
+
+    total_loss.backward()
+    main_optimizer.step()
+    
+    return total_loss.item()
 
 
-# ===== Datasetクラス =====
-class X3DVideoMAEDataset(Dataset):
-    """X3DとVideoMAEを同時にロードするDataset"""
-    def __init__(self, csv_path, x3d_dir, vmae_json):
-        print(f"=== ✅ 受け取った csv_path: {csv_path} ===")
-        self.df = pd.read_csv(csv_path)
-        with open(vmae_json, 'r') as f:
-            self.vmae_dict = json.load(f)
-        self.x3d_dir = x3d_dir
+def evaluate_model(models, loader, config, loss_fn, fusion=None):
+    for model in models.values(): model.eval()
+    losses = []
+    with torch.no_grad():
+        for batch in loader:
+            if config['train_mode'] == 'gated':
+                x3d, vmae, a, s = [b.long().cuda() if i >= 2 else b.cuda() for i, b in enumerate(batch)]
+                fused, _ = fusion(x3d, vmae); x = fused
+            else:
+                x, a, s = [b.long().cuda() if i >= 1 else b.cuda() for i, b in enumerate(batch)]
 
-        # --- npyファイルとvmae両方存在するものだけに絞る ---
-        valid_indices = []
-        for idx, row in self.df.iterrows():
-            video_path = row['video_path'].replace('\\', '/').strip()
-            video_id = os.path.splitext(os.path.basename(video_path))[0]
-            x3d_path = os.path.join(self.x3d_dir, video_id, f"{video_id}.npy")
-            # npyとvmae両方ある
-            if os.path.isfile(x3d_path) and (video_path in self.vmae_dict):
-                valid_indices.append(idx)
-            # else:
-            #     print(f"❌ スキップ: {video_path} (npy or vmae 不足)")
-        self.df = self.df.loc[valid_indices].reset_index(drop=True)
-
-        # --- ラベルエンコード ---
-        self.le_act = LabelEncoder().fit(self.df['action'])
-        self.le_sp = LabelEncoder().fit(self.df['species'])
-        self.df['act_id'] = self.le_act.transform(self.df['action'])
-        self.df['sp_id'] = self.le_sp.transform(self.df['species'])
-
-    def __len__(self):
-        return len(self.df)
-
-    def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-        video_path = row['video_path'].replace('\\', '/').strip()
-        video_id = os.path.splitext(os.path.basename(video_path))[0]
-
-        # --- X3Dベクトル ---
-        x3d_path = os.path.join(self.x3d_dir, video_id, f"{video_id}.npy")
-        x3d_vec = np.load(x3d_path).squeeze(0)
-
-        # --- VMAEベクトル ---
-        vmae_vec = np.array(self.vmae_dict.get(video_path))
-        if vmae_vec is None:
-            raise ValueError(f"❌ VMAE vector not found for {video_path}")
-
-        a = row['act_id']
-        s = row['sp_id']
-
-        return (
-            torch.tensor(x3d_vec, dtype=torch.float32),
-            torch.tensor(vmae_vec, dtype=torch.float32),
-            int(a),
-            int(s),
-        )
-
-# ====== train_one_flow ======
-def train_one_flow(loss_type, use_grl, use_mlp, datatype):
-    csv_file = f"./label/{datatype}/train/labels.csv"
-    flow_dir = f"./x3d_output/{datatype}/train"
-    dataset = FlowNpyDataset(csv_file, flow_dir)
-    loader = DataLoader(dataset, batch_size=64, shuffle=True)
-    D = dataset[0][0].shape[0]
-    A, S = len(dataset.le_act.classes_), len(dataset.le_sp.classes_)
-    net = (DisentangleNetMLP if use_mlp else DisentangleNetSimple)(D, 256, A, S).cuda()
-    opt = torch.optim.Adam(net.parameters(), lr=1e-4)
-    triplet_loss = ImprovedTripletLoss() if loss_type == 'improved' else nn.TripletMarginLoss(0.1)
-    ce_act, ce_sp = nn.CrossEntropyLoss(), nn.CrossEntropyLoss()
-    suffix = f"flow_{'mlp' if use_mlp else 'linear'}-{'grl' if use_grl else 'nogrl'}-adv{LAMBDA_ADV:.2f}"
-    os.makedirs(f"./models/model_flow/{datatype}/{loss_type}", exist_ok=True)
-    best_loss, patience = float('inf'), 50
-    no_improve, log = 0, []
-    for epoch in range(1000):
-        losses = []
-        for vec, a, s in loader:
-            vec, a, s = vec.cuda(), a.cuda().long(), s.cuda().long()
-            a_vec, s_vec, s_pred, a_pred = net(vec, grl_lambda=1.0 if use_grl else 0.0)
-            a_vec = nn.functional.normalize(a_vec, dim=-1)
-            s_vec = nn.functional.normalize(s_vec, dim=-1)
-            anc_a, pos_a, neg_a = make_triplets_hard(a_vec, a)
-            anc_s, pos_s, neg_s = make_triplets_hard(s_vec, s)
-            if anc_a is None or anc_s is None: continue
-            loss = LAMBDA_ACTION * triplet_loss(anc_a, pos_a, neg_a)
-            loss += LAMBDA_SPECIES * triplet_loss(anc_s, pos_s, neg_s)
-            if use_grl: loss += LAMBDA_ADV * (ce_sp(s_pred, s) + ce_act(a_pred, a))
-            opt.zero_grad(); loss.backward(); opt.step()
+            encoder = models['action_encoder'] if 'action_encoder' in models else models['net']
+            a_vec = encoder(x)
+            
+            if config['loss_type'] == 'supcon':
+                loss = loss_fn(a_vec, a)
+            else:
+                a_vec_norm = nn.functional.normalize(a_vec, dim=-1)
+                anc, pos, neg = make_triplets_hard(a_vec_norm, a)
+                if anc is None: continue
+                loss = loss_fn(anc, pos, neg)
+            
             losses.append(loss.item())
-        avg = np.mean(losses)
-        print(f"[FLOW][{loss_type.upper()}][MLP:{use_mlp}][GRL:{use_grl}] Epoch {epoch:03d} | Loss: {avg:.4f}")
-        if avg < best_loss: best_loss, no_improve = avg, 0; torch.save(net.state_dict(), f"./models/model_flow/{datatype}/{loss_type}/{suffix}.pth")
-        else: no_improve += 1
-        if no_improve >= patience: break
+            
+    return np.mean(losses) if losses else float('inf')
 
 
-# ====== train_one_gated ======
-def train_one_gated(loss_type, use_grl, use_mlp, datatype):
-    csv_file = f"./label/{datatype}/train/labels.csv"
-    x3d_dir = f"./x3d_output/{datatype}/train"
-    vmae_json = f"./vector/{datatype}/train/vectors_sliding_base.json"
-    dataset = X3DVideoMAEDataset(csv_file, x3d_dir, vmae_json)
-    loader = DataLoader(dataset, batch_size=64, shuffle=True)
-    A, S = len(dataset.le_act.classes_), len(dataset.le_sp.classes_)
-    fusion = GatedFusion(2048, 768, 512).cuda()
-    net = (DisentangleNetMLP if use_mlp else DisentangleNetSimple)(512, 256, A, S).cuda()
-    params = list(fusion.parameters()) + list(net.parameters())
-    opt = torch.optim.Adam(params, lr=1e-4)
-    triplet_loss = ImprovedTripletLoss() if loss_type == 'improved' else nn.TripletMarginLoss(0.1)
-    ce_act, ce_sp = nn.CrossEntropyLoss(), nn.CrossEntropyLoss()
-    suffix = f"gated_{'mlp' if use_mlp else 'linear'}-{'grl' if use_grl else 'nogrl'}-adv{LAMBDA_ADV:.2f}"
-    model_dir = f"./models/model_gated/{datatype}/{loss_type}"
-    os.makedirs(model_dir, exist_ok=True)
-    alpha_plot_path = os.path.join(model_dir, f"{suffix}_alpha.png")
-
-    best_loss, patience = float('inf'), 50
-    alpha_means_all = []
-
-    for epoch in range(1000):
-        losses, alpha_means_epoch = [], []
-        for x3d, vmae, a, s in loader:
-            x3d, vmae, a, s = x3d.cuda(), vmae.cuda(), a.cuda().long(), s.cuda().long()
-            fused, alpha = fusion(x3d, vmae)
-            a_vec, s_vec, s_pred, a_pred = net(fused, grl_lambda=1.0 if use_grl else 0.0)
-            a_vec, s_vec = nn.functional.normalize(a_vec, dim=-1), nn.functional.normalize(s_vec, dim=-1)
-            anc_a, pos_a, neg_a = make_triplets_hard(a_vec, a)
-            anc_s, pos_s, neg_s = make_triplets_hard(s_vec, s)
-            if anc_a is None or anc_s is None: continue
-            loss = LAMBDA_ACTION * triplet_loss(anc_a, pos_a, neg_a) + LAMBDA_SPECIES * triplet_loss(anc_s, pos_s, neg_s)
-            if use_grl: loss += LAMBDA_ADV * (ce_sp(s_pred, s) + ce_act(a_pred, a))
-            opt.zero_grad(); loss.backward(); opt.step()
-            losses.append(loss.item())
-            alpha_means_epoch.append(alpha.mean().item())
-
-        mean_alpha = np.mean(alpha_means_epoch)
-        alpha_means_all.append(mean_alpha)
-
-        avg = np.mean(losses)
-        print(f"[GATED][{loss_type.upper()}][MLP:{use_mlp}][GRL:{use_grl}] "
-          f"Epoch {epoch:03d} | Loss: {avg:.4f} | α mean: {mean_alpha:.4f}")
-
-        if avg < best_loss:
-            best_loss, no_improve = avg, 0
-            torch.save({'fusion': fusion.state_dict(), 'net': net.state_dict()},
-                       os.path.join(model_dir, f"{suffix}.pth"))
+def train_model(config, train_loader, val_loader, le_sp, trial, study_name, fusion=None):
+    S = len(le_sp.classes_)
+    sample_data = next(iter(train_loader))[0]
+    D = config['fused_dim'] if fusion is not None else sample_data.shape[1]
+    
+    models = nn.ModuleDict()
+    optimizers = {}
+    
+    if config['use_adversarial']:
+        models['action_encoder'] = (ActionMLPNet(D, 256, 256) if config['use_mlp'] else ActionLinearNet(D, 256)).cuda()
+        models['discriminator'] = SpeciesDiscriminator(256, S).cuda()
+        params_enc = list(models['action_encoder'].parameters())
+        if fusion:
+            models['fusion'] = fusion
+            params_enc.extend(fusion.parameters())
+        optimizers['encoder'] = torch.optim.Adam(params_enc, lr=config['lr'])
+        optimizers['discriminator'] = torch.optim.Adam(models['discriminator'].parameters(), lr=config['lr'])
+    else:
+        models['net'] = (SimpleMLPNet(D, 256, 256) if config['use_mlp'] else SimpleLinearNet(D, 256)).cuda()
+        params_to_optimize = list(models['net'].parameters())
+        if fusion:
+            models['fusion'] = fusion
+            params_to_optimize.extend(fusion.parameters())
+        optimizers['main'] = torch.optim.Adam(params_to_optimize, lr=config['lr'])
+        
+    loss_fn = get_loss_fn(config['loss_type'], config.get('temperature', 0.07))
+    
+    run_name = wandb.run.name or "local-run"
+    model_dir = Path(f"./models/{study_name}")
+    model_dir.mkdir(parents=True, exist_ok=True)
+    save_path = model_dir / f"{run_name}_best.pth"
+    
+    best_val_loss, patience, no_improve = float('inf'), 50, 0
+    
+    for epoch in range(200):
+        train_losses = []
+        desc = f"[{config['train_mode'].upper()}][{config['loss_type']}] Epoch {epoch+1:03d}"
+        for batch in tqdm(train_loader, desc=desc):
+            loss = train_step(models, batch, loss_fn, optimizers, config, le_sp)
+            if loss is not None: train_losses.append(loss)
+        
+        avg_train_loss = np.mean(train_losses) if train_losses else float('inf')
+        fusion_for_eval = models['fusion'] if 'fusion' in models else None
+        avg_val_loss = evaluate_model(models, val_loader, config, loss_fn, fusion=fusion_for_eval)
+        wandb.log({"epoch": epoch + 1, "train_loss": avg_train_loss, "val_loss": avg_val_loss})
+        
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            no_improve = 0
+            print(f"✅ Best val_loss improved to {best_val_loss:.4f}. Saving model...")
+            torch.save(models.state_dict(), save_path)
+            trial.set_user_attr("model_save_path", str(save_path))
         else:
             no_improve += 1
             if no_improve >= patience:
+                print("Early stopping triggered.")
                 break
 
-    # === αの平均推移をグラフで保存 ===
-    plt.figure()
-    plt.plot(alpha_means_all, label='Gating α mean per epoch')
-    plt.xlabel("Epoch")
-    plt.ylabel("Mean α")
-    plt.title(f"GatedFusion α: {suffix}")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(alpha_plot_path)
-    print(f"✅ Saved α plot: {alpha_plot_path}")
+    return best_val_loss
 
-# ====== train_one_mae ======
-def train_one_mae(loss_type, use_grl, use_mlp, datatype):
-    vmae_json = f"./vector/{datatype}/train/vectors_sliding_base.json"
-    csv_file = f"./label/{datatype}/train/labels.csv"
-    df, vecs, le_act, le_sp = load_data(csv_file, vmae_json)
-    A, S = len(le_act.classes_), len(le_sp.classes_)
-    loader = create_dataloader(df, vecs, batch_size=64, shuffle=True)
-    net = (DisentangleNetMLP if use_mlp else DisentangleNetSimple)(768, 256, A, S).cuda()
-    opt = torch.optim.Adam(net.parameters(), lr=1e-4)
-    triplet_loss = ImprovedTripletLoss() if loss_type == 'improved' else nn.TripletMarginLoss(0.1)
-    ce_act, ce_sp = nn.CrossEntropyLoss(), nn.CrossEntropyLoss()
-    suffix = f"mae_{'mlp' if use_mlp else 'linear'}-{'grl' if use_grl else 'nogrl'}-adv{LAMBDA_ADV:.2f}"
-    os.makedirs(f"./models/model_mae/{datatype}/{loss_type}", exist_ok=True)
-    best_loss, patience = float('inf'), 50
-    for epoch in range(1000):
-        losses = []
-        for z, a, s in loader:
-            z, a, s = z.cuda(), a.cuda().long(), s.cuda().long()
-            a_vec, s_vec, s_pred, a_pred = net(z, grl_lambda=1.0 if use_grl else 0.0)
-            a_vec, s_vec = nn.functional.normalize(a_vec, dim=-1), nn.functional.normalize(s_vec, dim=-1)
-            anc_a, pos_a, neg_a = make_triplets_hard(a_vec, a)
-            anc_s, pos_s, neg_s = make_triplets_hard(s_vec, s)
-            if anc_a is None or anc_s is None: continue
-            loss = LAMBDA_ACTION * triplet_loss(anc_a, pos_a, neg_a) + LAMBDA_SPECIES * triplet_loss(anc_s, pos_s, neg_s)
-            if use_grl: loss += LAMBDA_ADV * (ce_sp(s_pred, s) + ce_act(a_pred, a))
-            opt.zero_grad(); loss.backward(); opt.step()
-            losses.append(loss.item())
-        avg = np.mean(losses)
-        print(f"[MAE][{loss_type.upper()}][MLP:{use_mlp}][GRL:{use_grl}] "
-          f"Epoch {epoch:03d} | Loss: {avg:.4f}")
-        if avg < best_loss: best_loss, no_improve = avg, 0; torch.save(net.state_dict(), f"./models/model_mae/{datatype}/{loss_type}/{suffix}.pth")
-        else: no_improve += 1
-        if no_improve >= patience: break
+# --- Optuna 目的関数 ---
+def objective(trial):
+    loss_type = trial.suggest_categorical("loss_type", ["improved", "cosine", "default", "supcon"])
+    train_mode = trial.suggest_categorical("train_mode", ["flow", "mae", "gated"])
+    
+    flow_preprocessing = 'n/a'
+    if train_mode in ['flow', 'gated']:
+        flow_preprocessing = trial.suggest_categorical("flow_preprocessing", ["normal", "centered"])
 
-# ====== Main ======
+    config = {
+        "use_mlp": trial.suggest_categorical("use_mlp", [True, False]),
+        "loss_type": loss_type,
+        "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
+        "lambda_action": 1.0,
+        "lambda_adv": trial.suggest_float("lambda_adv", 0.01, 0.5),
+        "train_mode": train_mode,
+        "use_adversarial": trial.suggest_categorical("use_adversarial", [True, False]),
+        "flow_preprocessing": flow_preprocessing,
+        "datatype": 'animalkingdom', "batch_size": 64, "fused_dim": 512, "feature_dim": 256
+    }
+    
+    if loss_type == 'supcon':
+        config['temperature'] = trial.suggest_float('temperature', 0.05, 0.5)
+
+    run_name = f"trial_{trial.number}_{config['train_mode']}_{config['loss_type']}"
+    wandb.init(project="optuna_disentangle_supcon", config=config, group=config['train_mode'], name=run_name, reinit=True)
+    
+    datatype = config['datatype']
+    full_csv_path = f"./label/{datatype}/train/labels.csv"
+    full_df = pd.read_csv(full_csv_path)
+    le_act = LabelEncoder().fit(full_df['action'])
+    le_sp = LabelEncoder().fit(full_df['species'])
+    train_df, val_df = train_test_split(full_df, test_size=0.2, random_state=42, stratify=full_df['action'])
+    
+    vmae_json_path = f"./vector/{datatype}/train/vectors_sliding_base.json"
+    x3d_dir_path = f"./x3d_output/{datatype}/train"
+    x3d_centered_dir_path = f"./x3d_output_centered/{datatype}/train"
+    
+    current_x3d_path = x3d_centered_dir_path if config.get('flow_preprocessing') == 'centered' else x3d_dir_path
+    
+    fusion_model = None
+    if config['train_mode'] == 'mae':
+        train_dataset = MAEDataset(train_df, vmae_json_path, le_act, le_sp)
+        val_dataset = MAEDataset(val_df, vmae_json_path, le_act, le_sp)
+    elif config['train_mode'] == 'flow':
+        train_dataset = FlowNpyDataset(train_df, current_x3d_path, le_act, le_sp)
+        val_dataset = FlowNpyDataset(val_df, current_x3d_path, le_act, le_sp)
+    elif config['train_mode'] == 'gated':
+        train_dataset = X3DVideoMAEDataset(train_df, current_x3d_path, vmae_json_path, le_act, le_sp)
+        val_dataset = X3DVideoMAEDataset(val_df, current_x3d_path, vmae_json_path, le_act, le_sp)
+        fusion_model = GatedFusion(2048, 768, config['fused_dim']).cuda()
+    
+    train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True, num_workers=4)
+    val_loader = DataLoader(val_dataset, batch_size=config['batch_size'], shuffle=False, num_workers=4)
+    study_name = trial.study.study_name
+    best_val_loss = train_model(config, train_loader, val_loader, le_sp, trial, study_name, fusion=fusion_model)
+
+    wandb.finish()
+    return best_val_loss
+
+# --- メイン実行ブロック ---
 def main():
-    datatype = 'animalkingdom'
-    for loss_type in ['improved',"triplet"]:
-        for use_mlp in [True, False]:
-            for use_grl in [True, False]:
-                print(f"=== Training: {loss_type}, MLP: {use_mlp}, GRL: {use_grl}, Data: {datatype} ===")
-                try:
-                    train_one_flow(loss_type, use_grl, use_mlp, datatype)
-                    train_one_gated(loss_type, use_grl, use_mlp, datatype)
-                    train_one_mae(loss_type, use_grl, use_mlp, datatype)
-                    send_discord_message(f"✅ Training completed: {loss_type}, MLP: {use_mlp}, GRL: {use_grl}, Data: {datatype}")
-                except Exception as e:
-                    traceback.print_exc()
-                    send_discord_message(f"❌ Training failed: {loss_type}, MLP: {use_mlp}, GRL: {use_grl}, Data: {datatype}\nError: {str(e)}")
-                print("\n")
+    storage_name = "sqlite:///optuna_study.db"
+    study_name = "disentangle-study-0801"
+    study = optuna.create_study(direction="minimize", storage=storage_name, study_name=study_name, load_if_exists=True)
+    study.optimize(objective, n_trials=100)
+    print("Best Trial:", study.best_trial.params)
+
+    print("\n--- Starting model cleanup ---")
+    TOP_K_TO_KEEP = 5
+
+    completed_trials = sorted(
+        study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE]),
+        key=lambda t: t.value
+    )
+
+    # 削除対象のTrialを取得
+    trials_to_delete = completed_trials[TOP_K_TO_KEEP:]
+
+    deleted_count = 0
+    for trial in trials_to_delete:
+        save_path_str = trial.user_attrs.get("model_save_path")
+        if save_path_str:
+            save_path = Path(save_path_str)
+            if save_path.exists():
+                save_path.unlink()
+                deleted_count += 1
+
+    print(f"Cleanup finished. Kept top {len(completed_trials) - len(trials_to_delete)} models.")
+    print(f"Deleted {deleted_count} model checkpoints.")
+
+
 if __name__ == "__main__":
     main()
