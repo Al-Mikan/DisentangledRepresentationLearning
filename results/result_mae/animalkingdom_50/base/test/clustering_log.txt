@@ -1,0 +1,40 @@
+[2025-07-02 18:14:25] sliding_triplet_linear-grl_24fps
+ KMeans (k=6) ARI=0.3631, NMI=0.5189
+ Agglomerative ARI=0.3182, NMI=0.4483
+ DBSCAN ARI=0.5681, NMI=0.7259
+
+[2025-07-02 18:14:32] sliding_triplet_mlp-grl_24fps
+ KMeans (k=6) ARI=0.1930, NMI=0.3163
+ Agglomerative ARI=0.1827, NMI=0.3197
+ DBSCAN ARI=0.0596, NMI=0.1981
+
+[2025-07-02 18:14:33] sliding_triplet_linear-nogrl_24fps
+ KMeans (k=6) ARI=0.1822, NMI=0.2896
+ Agglomerative ARI=0.1532, NMI=0.2774
+ DBSCAN Insufficient clusters
+
+[2025-07-02 18:14:35] sliding_triplet_mlp-nogrl_24fps
+ KMeans (k=6) ARI=0.3096, NMI=0.4702
+ Agglomerative ARI=0.2759, NMI=0.4362
+ DBSCAN Insufficient clusters
+
+[2025-07-02 18:14:36] sliding_improved_linear-grl_24fps
+ KMeans (k=6) ARI=0.2770, NMI=0.4518
+ Agglomerative ARI=0.2974, NMI=0.5013
+ DBSCAN ARI=0.4729, NMI=0.6975
+
+[2025-07-02 18:14:38] sliding_improved_mlp-grl_24fps
+ KMeans (k=6) ARI=0.3823, NMI=0.5517
+ Agglomerative ARI=0.4536, NMI=0.6321
+ DBSCAN Insufficient clusters
+
+[2025-07-02 18:14:39] sliding_improved_linear-nogrl_24fps
+ KMeans (k=6) ARI=0.1665, NMI=0.2694
+ Agglomerative ARI=0.1685, NMI=0.2737
+ DBSCAN Insufficient clusters
+
+[2025-07-02 18:14:41] sliding_improved_mlp-nogrl_24fps
+ KMeans (k=6) ARI=0.1988, NMI=0.3393
+ Agglomerative ARI=0.3180, NMI=0.4668
+ DBSCAN Insufficient clusters
+

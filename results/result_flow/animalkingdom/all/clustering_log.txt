@@ -1,0 +1,20 @@
+[2025-07-07 13:27:18] flow_improved_mlp-grl
+KMeans ARI=0.0290 NMI=0.0951
+Agglomerative ARI=-0.0117 NMI=0.0548
+DBSCAN Insufficient clusters
+
+[2025-07-07 13:27:28] flow_improved_mlp-nogrl
+KMeans ARI=0.3274 NMI=0.4251
+Agglomerative ARI=0.3135 NMI=0.4524
+DBSCAN Insufficient clusters
+
+[2025-07-07 13:27:38] flow_improved_linear-grl
+KMeans ARI=0.0244 NMI=0.0970
+Agglomerative ARI=-0.0044 NMI=0.0725
+DBSCAN Insufficient clusters
+
+[2025-07-07 13:27:48] flow_improved_linear-nogrl
+KMeans ARI=0.0724 NMI=0.1838
+Agglomerative ARI=0.0352 NMI=0.1965
+DBSCAN Insufficient clusters
+

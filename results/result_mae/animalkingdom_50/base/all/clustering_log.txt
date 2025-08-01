@@ -1,0 +1,40 @@
+[2025-07-02 18:11:20] sliding_triplet_linear-grl_24fps
+ KMeans (k=2) ARI=0.0335, NMI=0.0963
+ Agglomerative ARI=0.0376, NMI=0.0990
+ DBSCAN ARI=0.5681, NMI=0.7259
+
+[2025-07-02 18:11:36] sliding_triplet_mlp-grl_24fps
+ KMeans (k=2) ARI=0.0314, NMI=0.0932
+ Agglomerative ARI=0.0200, NMI=0.0865
+ DBSCAN ARI=0.0927, NMI=0.2822
+
+[2025-07-02 18:11:45] sliding_triplet_linear-nogrl_24fps
+ KMeans (k=2) ARI=0.0258, NMI=0.0914
+ Agglomerative ARI=0.0445, NMI=0.1013
+ DBSCAN ARI=0.1004, NMI=0.3098
+
+[2025-07-02 18:11:55] sliding_triplet_mlp-nogrl_24fps
+ KMeans (k=5) ARI=0.6609, NMI=0.7790
+ Agglomerative ARI=0.6434, NMI=0.7840
+ DBSCAN Insufficient clusters
+
+[2025-07-02 18:12:04] sliding_improved_linear-grl_24fps
+ KMeans (k=2) ARI=0.0271, NMI=0.0911
+ Agglomerative ARI=0.0390, NMI=0.1027
+ DBSCAN ARI=0.4920, NMI=0.7379
+
+[2025-07-02 18:12:15] sliding_improved_mlp-grl_24fps
+ KMeans (k=2) ARI=0.0961, NMI=0.2879
+ Agglomerative ARI=0.0968, NMI=0.3058
+ DBSCAN ARI=0.2184, NMI=0.4302
+
+[2025-07-02 18:12:25] sliding_improved_linear-nogrl_24fps
+ KMeans (k=2) ARI=0.0253, NMI=0.0904
+ Agglomerative ARI=0.0245, NMI=0.0904
+ DBSCAN ARI=0.0985, NMI=0.3089
+
+[2025-07-02 18:12:35] sliding_improved_mlp-nogrl_24fps
+ KMeans (k=8) ARI=0.8708, NMI=0.9003
+ Agglomerative ARI=0.8952, NMI=0.9181
+ DBSCAN ARI=0.0497, NMI=0.2426
+

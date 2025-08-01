@@ -66,6 +66,23 @@ class DisentangleNetMLP(nn.Module):
         a_pred_from_s = self.action_disc(grad_reverse(s_vec, grl_lambda))
         return a_vec, s_vec, s_pred_from_a, a_pred_from_s
 
+class GatedFusion(nn.Module):
+    def __init__(self, d_x3d, d_vmae, d_hidden):
+        super().__init__()
+        self.x3d_fc = nn.Linear(d_x3d, d_hidden)
+        self.vmae_fc = nn.Linear(d_vmae, d_hidden)
+        self.gate = nn.Sequential(
+            nn.Linear(d_hidden * 2, d_hidden),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x3d, vmae):
+        x3d_proj = self.x3d_fc(x3d)
+        vmae_proj = self.vmae_fc(vmae)
+        concat = torch.cat([x3d_proj, vmae_proj], dim=-1)
+        alpha = self.gate(concat)
+        fused = alpha * x3d_proj + (1 - alpha) * vmae_proj
+        return fused, alpha
 # -----------------------------
 # 推論用モデル
 # -----------------------------
@@ -136,3 +153,4 @@ class VecDataset(Dataset):
 def create_dataloader(df, vecs, batch_size=64, shuffle=True):
     dataset = VecDataset(df, vecs)
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+

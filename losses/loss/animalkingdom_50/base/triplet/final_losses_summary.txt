@@ -1,0 +1,4 @@
+[animalkingdom_50_base_sliding_triplet_mlp-nogrl] epoch=356 | total=0.0031 | trip_a=0.0015 | trip_s=0.0003 | adv_s=5.0628 | adv_a=2.1792
+[animalkingdom_50_base_sliding_triplet_mlp-grl] epoch=69 | total=8.7525 | trip_a=0.2551 | trip_s=0.3578 | adv_s=11.0698 | adv_a=5.0571
+[animalkingdom_50_base_sliding_triplet_linear-nogrl] epoch=634 | total=0.2022 | trip_a=0.1006 | trip_s=0.0019 | adv_s=7.6175 | adv_a=2.1944
+[animalkingdom_50_base_sliding_triplet_linear-grl] epoch=136 | total=4.0558 | trip_a=0.1474 | trip_s=0.1677 | adv_s=5.3449 | adv_a=2.0092

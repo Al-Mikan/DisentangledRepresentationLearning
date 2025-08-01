@@ -1,0 +1,8 @@
+[animalkingdom_improved_mlp-grl] last_loss=3.8140
+[animalkingdom_improved_mlp-nogrl] last_loss=0.0043
+[animalkingdom_improved_linear-grl] last_loss=3.5294
+[animalkingdom_improved_linear-nogrl] last_loss=0.0177
+[animalkingdom_improved_mlp-grl] last_loss=0.9554
+[animalkingdom_improved_mlp-nogrl] last_loss=0.0003
+[animalkingdom_improved_linear-grl] last_loss=0.8892
+[animalkingdom_improved_linear-nogrl] last_loss=0.0015

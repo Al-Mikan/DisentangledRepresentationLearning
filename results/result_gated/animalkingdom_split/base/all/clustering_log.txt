@@ -1,0 +1,180 @@
+[2025-07-04 11:01:10] sliding_improved_mlp-grl
+KMeans ARI=0.0241 NMI=0.0603
+Agglomerative ARI=0.0106 NMI=0.0607
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:01:24] sliding_improved_mlp-nogrl
+KMeans ARI=0.7436 NMI=0.7125
+Agglomerative ARI=0.7739 NMI=0.7579
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:01:32] sliding_improved_linear-grl
+KMeans ARI=0.0272 NMI=0.0674
+Agglomerative ARI=0.0176 NMI=0.0473
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:01:41] sliding_improved_linear-nogrl
+KMeans ARI=0.5907 NMI=0.6742
+Agglomerative ARI=0.7573 NMI=0.7511
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:06:49] sliding_improved_mlp-grl
+KMeans ARI=0.0241 NMI=0.0603
+Agglomerative ARI=0.0106 NMI=0.0607
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:07:02] sliding_improved_mlp-nogrl
+KMeans ARI=0.7436 NMI=0.7125
+Agglomerative ARI=0.7739 NMI=0.7579
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:07:10] sliding_improved_linear-grl
+KMeans ARI=0.0272 NMI=0.0674
+Agglomerative ARI=0.0176 NMI=0.0473
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:07:19] sliding_improved_linear-nogrl
+KMeans ARI=0.5907 NMI=0.6742
+Agglomerative ARI=0.7573 NMI=0.7511
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:08:05] sliding_improved_mlp-grl
+KMeans ARI=0.0241 NMI=0.0603
+Agglomerative ARI=0.0106 NMI=0.0607
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:08:18] sliding_improved_mlp-nogrl
+KMeans ARI=0.7436 NMI=0.7125
+Agglomerative ARI=0.7739 NMI=0.7579
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:08:26] sliding_improved_linear-grl
+KMeans ARI=0.0272 NMI=0.0674
+Agglomerative ARI=0.0176 NMI=0.0473
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:08:36] sliding_improved_linear-nogrl
+KMeans ARI=0.5907 NMI=0.6742
+Agglomerative ARI=0.7573 NMI=0.7511
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:18:06] sliding_improved_mlp-grl
+KMeans ARI=0.0241 NMI=0.0603
+Agglomerative ARI=0.0106 NMI=0.0607
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:18:14] sliding_improved_mlp-nogrl
+KMeans ARI=0.7436 NMI=0.7125
+Agglomerative ARI=0.7739 NMI=0.7579
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:18:22] sliding_improved_linear-grl
+KMeans ARI=0.0272 NMI=0.0674
+Agglomerative ARI=0.0176 NMI=0.0473
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:18:31] sliding_improved_linear-nogrl
+KMeans ARI=0.5907 NMI=0.6742
+Agglomerative ARI=0.7573 NMI=0.7511
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:22:23] sliding_improved_mlp-grl
+KMeans ARI=0.0241 NMI=0.0603
+Agglomerative ARI=0.0106 NMI=0.0607
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:22:31] sliding_improved_mlp-nogrl
+KMeans ARI=0.7436 NMI=0.7125
+Agglomerative ARI=0.7739 NMI=0.7579
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:22:39] sliding_improved_linear-grl
+KMeans ARI=0.0272 NMI=0.0674
+Agglomerative ARI=0.0176 NMI=0.0473
+DBSCAN Insufficient clusters
+
+[2025-07-04 11:22:49] sliding_improved_linear-nogrl
+KMeans ARI=0.5907 NMI=0.6742
+Agglomerative ARI=0.7573 NMI=0.7511
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:30:24] sliding_improved_mlp-grl
+KMeans ARI=0.0241 NMI=0.0603
+Agglomerative ARI=0.0106 NMI=0.0607
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:30:33] sliding_improved_mlp-nogrl
+KMeans ARI=0.7436 NMI=0.7125
+Agglomerative ARI=0.7739 NMI=0.7579
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:30:41] sliding_improved_linear-grl
+KMeans ARI=0.0272 NMI=0.0674
+Agglomerative ARI=0.0176 NMI=0.0473
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:30:50] sliding_improved_linear-nogrl
+KMeans ARI=0.5907 NMI=0.6742
+Agglomerative ARI=0.7573 NMI=0.7511
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:32:06] sliding_improved_mlp-grl
+KMeans ARI=0.0241 NMI=0.0603
+Agglomerative ARI=0.0106 NMI=0.0607
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:32:14] sliding_improved_mlp-nogrl
+KMeans ARI=0.7436 NMI=0.7125
+Agglomerative ARI=0.7739 NMI=0.7579
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:32:22] sliding_improved_linear-grl
+KMeans ARI=0.0272 NMI=0.0674
+Agglomerative ARI=0.0176 NMI=0.0473
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:32:31] sliding_improved_linear-nogrl
+KMeans ARI=0.5907 NMI=0.6742
+Agglomerative ARI=0.7573 NMI=0.7511
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:37:31] sliding_improved_mlp-grl
+KMeans ARI=0.0241 NMI=0.0603
+Agglomerative ARI=0.0106 NMI=0.0607
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:37:40] sliding_improved_mlp-nogrl
+KMeans ARI=0.7436 NMI=0.7125
+Agglomerative ARI=0.7739 NMI=0.7579
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:37:48] sliding_improved_linear-grl
+KMeans ARI=0.0272 NMI=0.0674
+Agglomerative ARI=0.0176 NMI=0.0473
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:37:58] sliding_improved_linear-nogrl
+KMeans ARI=0.5907 NMI=0.6742
+Agglomerative ARI=0.7573 NMI=0.7511
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:39:52] sliding_improved_mlp-grl
+KMeans ARI=0.0241 NMI=0.0603
+Agglomerative ARI=0.0106 NMI=0.0607
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:40:01] sliding_improved_mlp-nogrl
+KMeans ARI=0.7436 NMI=0.7125
+Agglomerative ARI=0.7739 NMI=0.7579
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:40:09] sliding_improved_linear-grl
+KMeans ARI=0.0272 NMI=0.0674
+Agglomerative ARI=0.0176 NMI=0.0473
+DBSCAN Insufficient clusters
+
+[2025-07-04 12:40:19] sliding_improved_linear-nogrl
+KMeans ARI=0.5907 NMI=0.6742
+Agglomerative ARI=0.7573 NMI=0.7511
+DBSCAN Insufficient clusters
+

@@ -1,0 +1,4 @@
+[mlp-grl-adv0.10] last_loss=0.9746
+[mlp-nogrl-adv0.10] last_loss=0.0004
+[linear-grl-adv0.10] last_loss=0.8886
+[linear-nogrl-adv0.10] last_loss=0.0622

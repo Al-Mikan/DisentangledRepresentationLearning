@@ -1,0 +1,4 @@
+[wolf_v2_base_sliding_improved_mlp-nogrl] epoch=999 | total=0.2097 | trip_a=0.1000 | trip_s=0.0194 | adv_s=110.4994 | adv_a=2.0045
+[wolf_v2_base_sliding_improved_mlp-grl] epoch=50 | total=82.8809 | trip_a=1.8570 | trip_s=1.0728 | adv_s=33.9158 | adv_a=123.3450
+[wolf_v2_base_sliding_improved_linear-nogrl] epoch=958 | total=0.2520 | trip_a=0.1010 | trip_s=0.1002 | adv_s=28.3565 | adv_a=5.1459
+[wolf_v2_base_sliding_improved_linear-grl] epoch=50 | total=8.2659 | trip_a=0.7732 | trip_s=1.0324 | adv_s=8.0508 | adv_a=4.3557

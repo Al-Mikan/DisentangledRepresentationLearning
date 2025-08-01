@@ -1,0 +1,4 @@
+[horse_improved_mlp-grl] last_loss=3.3461
+[horse_improved_mlp-nogrl] last_loss=0.0992
+[horse_improved_linear-grl] last_loss=3.6589
+[horse_improved_linear-nogrl] last_loss=0.0113
