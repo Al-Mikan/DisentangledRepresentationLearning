@@ -8,7 +8,7 @@ import numpy as np
 bridge.set_bridge('native')  # 'torch' でも可
 
 # CSV読み込み
-df = pd.read_csv("./label/horse/train/labels.csv")
+df = pd.read_csv("./label/animalkingdom/train/labels.csv")
 
 # 🎯 ラベル統計情報の表示
 print("📁 labels.csv の基本情報")

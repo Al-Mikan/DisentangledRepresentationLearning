@@ -19,11 +19,15 @@ class SimpleLinearNet(nn.Module):
         return self.action_head(x)
 
 class SimpleMLPNet(nn.Module):
-    def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512):
+    def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.2):
         super().__init__()
         self.act_embed = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, feature_dim)
+            nn.Linear(input_dim, hidden_dim, bias=True),
+            nn.LayerNorm(hidden_dim),      
+            nn.ReLU(),
+            nn.Dropout(p_drop),               
+            nn.Linear(hidden_dim, feature_dim, bias=True),
+            nn.LayerNorm(feature_dim)   
         )
 
     def forward(self, x):
@@ -41,16 +45,19 @@ class ActionLinearNet(nn.Module):
         return self.encoder(x)
     
 class ActionMLPNet(nn.Module):
-    def __init__(self, input_dim, hidden_dim, feature_dim):
+    def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.2):
         super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+        self.act_embed = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim, bias=True),
+            nn.LayerNorm(hidden_dim),      
             nn.ReLU(),
-            nn.Linear(hidden_dim, feature_dim)
+            nn.Dropout(p_drop),               
+            nn.Linear(hidden_dim, feature_dim, bias=True),
+            nn.LayerNorm(feature_dim)   
         )
 
     def forward(self, x):
-        return self.encoder(x)
+        return self.act_embed(x)
 
 class SpeciesDiscriminator(nn.Module):
     def __init__(self, feature_dim, num_species):
@@ -62,41 +69,22 @@ class SpeciesDiscriminator(nn.Module):
 
     def forward(self, feat):
         return self.classifier(feat)
-# -----------------------------
-# 3. 推論用モデル（a_vec, s_vec 両方を抽出）
-# -----------------------------
-class DisentangleEmbedLinear(nn.Module):
-    def __init__(self, D=768, H=256):
-        super().__init__()
-        self.act_embed = nn.Linear(D, H, bias=False)
 
-    def forward(self, z):
-        a_vec = self.act_embed(z)
-        return a_vec
-
-class DisentangleEmbedMLP(nn.Module):
-    def __init__(self, D=768, H=256, hidden=512):
-        super().__init__()
-        self.act_embed = nn.Sequential(
-            nn.Linear(D, hidden), nn.ReLU(),
-            nn.Linear(hidden, H)
-        )
-    def forward(self, z):
-        a_vec = self.act_embed(z)
-        return a_vec
 
 # -----------------------------
 # 4. Gated Fusion
 # -----------------------------
 class GatedFusion(nn.Module):
-    def __init__(self, d_x3d, d_vmae, d_hidden):
+    def __init__(self, d_x3d, d_vmae, d_hidden, p_drop=0.1):
         super().__init__()
         self.x3d_fc = nn.Linear(d_x3d, d_hidden)
         self.vmae_fc = nn.Linear(d_vmae, d_hidden)
         self.gate = nn.Sequential(
             nn.Linear(d_hidden * 2, d_hidden),
+            nn.LayerNorm(d_hidden), 
             nn.Sigmoid()
         )
+        self.dropout = nn.Dropout(p_drop)
 
     def forward(self, x3d, vmae):
         x3d_proj = self.x3d_fc(x3d)
