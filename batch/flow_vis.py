@@ -170,5 +170,5 @@ if __name__ == "__main__":
         video_path, out_dir,
         n_save_png=20,
         frames_every=10,
-        outputs=("raw",),
+        outputs=("raft",),
     )
