@@ -58,3 +58,20 @@
 
 - ルートで実行: `python .\exec\train.py` のように、リポジトリルートをカレントにするのが安全です。
 - 一時的に環境変数を付けて実行: `$env:OMP_NUM_THREADS='2'; python .\exec\evaluate.py`
+
+## Discord 通知（任意）
+
+train.py には、Discord Webhook 経由で進捗を通知する軽量機能を追加しています（標準ライブラリのみ使用・デフォルト無効）。
+
+- 有効化方法
+  - 環境変数 `DISCORD_WEBHOOK_URL` に Webhook URL を設定すると有効化されます。
+  - 各トライアルの開始/終了も通知したい場合は、`DISCORD_NOTIFY_TRIALS=1` を設定します（未設定なら Study 開始/終了とクリーンアップのみ通知）。
+  - 例（PowerShell）: `$env:DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."; $env:DISCORD_NOTIFY_TRIALS="1"; python .\exec\train.py`
+
+- 送信タイミングと内容
+  - Study 開始/終了（loss_type・study 名、ベストスコア・ハイパラ）
+  - トライアル開始/終了（任意・trial 番号、val_loss、保存先）
+  - クリーンアップ完了（保持/削除数とサマリーのパス）
+
+- 停止方法
+  - `DISCORD_WEBHOOK_URL` を未設定にする（通知は送られません）。

@@ -1,9 +1,12 @@
 import os
 import json
+from typing import Optional
+from urllib import request as urlrequest
+
 import numpy as np
 import pandas as pd
-from torch.utils.data import Dataset
 import torch
+from torch.utils.data import Dataset
 
 class BaseDataset(Dataset):
     """データセットの共通処理を担う基底クラス"""
@@ -82,3 +85,52 @@ class X3DVideoMAEDataset(BaseDataset):
             row['action'],
             row['species']
         )
+    
+
+# ---------------------------------
+# Discord notification (optional)
+# ---------------------------------
+def discord_notify(
+    content: str,
+    *,
+    username: str = "DisentangleBot",
+    webhook_url: Optional[str] = None,
+) -> None:
+    """Send a message to Discord via webhook.
+
+    - Skips silently if DISCORD_WEBHOOK_URL is not set.
+    - Uses only stdlib (no external dependencies).
+    - Adds User-Agent to avoid 403 Forbidden.
+    - Automatically splits messages over 2000 chars.
+    """
+    url = webhook_url or os.getenv("DISCORD_WEBHOOK_URL")
+    if not url:
+        print("[discord_notify] Skipped: no webhook URL found.")
+        return
+
+    try:
+        max_len = 1900  # Discord limit ≈ 2000
+        chunks = [content[i:i + max_len] for i in range(0, len(content), max_len)] or [content]
+
+        for i, chunk in enumerate(chunks):
+            payload = {"content": chunk, "username": username}
+            data = json.dumps(payload).encode("utf-8")
+
+            req = urlrequest.Request(
+                url,
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0 (compatible; DisentangleBot/1.0)"
+                },
+                method="POST"
+            )
+
+            with urlrequest.urlopen(req, timeout=10) as resp:
+                if resp.status == 204:
+                    print(f"[discord_notify] ✅ Sent message chunk {i+1}/{len(chunks)}")
+                else:
+                    print(f"[discord_notify] ⚠️ Unexpected status {resp.status}")
+
+    except Exception as e:
+        print(f"[discord_notify] ❌ Failed to send message: {e}")

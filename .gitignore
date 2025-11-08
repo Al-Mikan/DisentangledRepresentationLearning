@@ -1,17 +1,66 @@
-/video
-/vector
-/results
-/flows
-/label
-/losses
-/models
-/x3d_output
-/x3d_output_centered
-/results
-/optuna_study.db
-/wandb
-/sample_img
-/sample_img_centered
-/exec/__pycache__
-/exec/RAFT
+# =====================
+# OS / Editor ignores
+# =====================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
 
+# =====================
+# Python
+# =====================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.dll
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+.python-version
+.mypy_cache/
+.pytest_cache/
+.tox/
+.ipynb_checkpoints/
+
+# Virtual environments (choose your convention)
+.venv/
+venv/
+env/
+
+# =====================
+# Config / Secrets
+# =====================
+.env
+
+# =====================
+# Project artifacts (data, outputs, logs)
+# =====================
+/video/
+/vector/
+/flows/
+/label/
+/losses/
+/models/
+/x3d_output/
+/x3d_output_centered/
+/results/
+/wandb/
+/alpha_logs/
+/sample_img/
+/sample_img_centered/
+/optuna_study.db
+/results_summary.txt
+/train_result
+/eval_result
+
+# Exec subfolder caches / externals
+/exec/__pycache__/
+/exec/RAFT/
+
+# Keep placeholder files if needed
+!.gitkeep

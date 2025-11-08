@@ -1,3 +1,0 @@
-=== Optuna Trial Summary (Top 100 by val_loss) ===
-
-[001] loss_type=None | val_loss=0.100000
