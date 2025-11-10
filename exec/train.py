@@ -12,9 +12,9 @@ import wandb
 import optuna
 from optuna.trial import TrialState
 try:
-    from optuna.storages import InMemoryStorage  # type: ignore
+    from optuna.storages import InMemoryStorage 
 except Exception:
-    InMemoryStorage = None  # type: ignore
+    InMemoryStorage = None
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from datetime import datetime
@@ -28,14 +28,14 @@ from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
 
 # 必要なファイルをインポート
-from utils import FlowNpyDataset, X3DVideoMAEDataset, MAEDataset, discord_notify
+from utils import FlowNpyDataset, X3DVideoMAEDataset, MAEDataset, discord_notify, set_seed,cleanup_memory
 from model import (
     SimpleLinearNet, SimpleMLPNet, ActionLinearNet, ActionMLPNet,
     SpeciesDiscriminator, GatedFusion
 )
 from pytorch_metric_learning import losses, miners, distances
 from dotenv import load_dotenv
-from utils import discord_notify as _discord_notify
+
 load_dotenv()
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -55,17 +55,99 @@ try:
 except AttributeError:
     pass
 
-def set_seed(seed: int = 42) -> None:
-    """Set seeds for reproducibility where practical."""
-    import random
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
+# ==============================================================
+# ヘルパー関数群（データパス取得、データローダ構築、α保存、メモリ解放）
+# ==============================================================
+def get_data_paths(datatype: str, flow_preprocessing: str) -> Tuple[str, str]:
+    """データセット種類と前処理種別から VideoMAE JSON と X3D特徴パスを返す。"""
+    vmae_json_path = f"./vector/{datatype}/train/vectors_sliding_base.json"
+    x3d_dir_path = f"./x3d_output/{datatype}/train"
+    x3d_centered_dir_path = f"./x3d_output_centered/{datatype}/train"
+    current_x3d_path = x3d_centered_dir_path if flow_preprocessing == "centered" else x3d_dir_path
+    return vmae_json_path, current_x3d_path
+
+
+def build_datasets_and_loaders(
+    config: Dict[str, Any],
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    le_act: LabelEncoder,
+    le_sp: LabelEncoder,
+) -> Tuple[DataLoader, DataLoader, Optional[nn.Module]]:
+    """train/val の DataLoader と gated モード用融合モデルを構築する。"""
+    vmae_json_path, current_x3d_path = get_data_paths(config["datatype"], config.get("flow_preprocessing", "normal"))
+
+    fusion_model: Optional[nn.Module] = None
+    if config["train_mode"] == "mae":
+        train_dataset = MAEDataset(train_df, vmae_json_path, le_act, le_sp)
+        val_dataset = MAEDataset(val_df, vmae_json_path, le_act, le_sp)
+    elif config["train_mode"] == "flow":
+        train_dataset = FlowNpyDataset(train_df, current_x3d_path, le_act, le_sp)
+        val_dataset = FlowNpyDataset(val_df, current_x3d_path, le_act, le_sp)
+    elif config["train_mode"] == "gated":
+        train_dataset = X3DVideoMAEDataset(train_df, current_x3d_path, vmae_json_path, le_act, le_sp)
+        val_dataset = X3DVideoMAEDataset(val_df, current_x3d_path, vmae_json_path, le_act, le_sp)
+        fusion_model = GatedFusion(2048, 768, config["fused_dim"]).to(DEVICE)
+    else:
+        raise ValueError(f"Unknown train_mode: {config['train_mode']}")
+
+    workers = int(os.getenv("DATALOADER_NUM_WORKERS", "0"))
+    pin_env = os.getenv("PIN_MEMORY", "auto").lower()
+    pin_mem = torch.cuda.is_available() if pin_env == "auto" else (pin_env in ["1", "true", "yes"]) 
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=int(config["batch_size"]),
+        shuffle=True,
+        num_workers=workers,
+        pin_memory=pin_mem,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=int(config["batch_size"]),
+        shuffle=False,
+        num_workers=workers,
+        pin_memory=pin_mem,
+    )
+
+    return train_loader, val_loader, fusion_model
+
+
+def save_alpha_epoch(alpha_parts: List[np.ndarray], epoch: int, config: Dict[str, Any], trial: optuna.trial.Trial, results_root: Optional[Path], is_ablation: bool) -> None:
+    """gated モード時に収集した α を一時保存する。アブレーション時はスキップ。"""
+    if config.get("train_mode") != "gated" or not alpha_parts or is_ablation:
+        return
+    try:
+        alpha_epoch = np.concatenate(alpha_parts, axis=0)
+    except Exception:
+        print("⚠️ Failed to concatenate alpha parts; skip saving.")
+        return
+    if results_root is not None:
+        alpha_tmp_dir = Path(results_root) / 'alpha_logs_tmp' / f"trial_{trial.number:03d}"
+    else:
+        date_dir = datetime.now().strftime("%Y-%m-%d")
+        alpha_tmp_dir = Path('./train_result') / date_dir / 'alpha_logs_tmp' / f"trial_{trial.number:03d}"
+    alpha_tmp_dir.mkdir(parents=True, exist_ok=True)
+    alpha_tmp_path = alpha_tmp_dir / f"alpha_trial{trial.number:03d}_epoch{epoch:03d}.npy"
+    try:
+        np.save(str(alpha_tmp_path), alpha_epoch)
+    except Exception as e:
+        print(f"⚠️ Failed to save temp alpha for trial #{trial.number}, epoch {epoch}: {e}")
+
+
+def cleanup_memory() -> None:
+    """CUDAキャッシュとガーベジコレクションを呼び出してメモリを解放する。"""
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+    gc.collect()
 
 def _compute_embeddings(models, loader: DataLoader, config) -> Tuple[np.ndarray, np.ndarray]:
-    xs, ys = [], []
+    """ローダ全体をエンコードし (特徴行列, ラベルベクトル) を返す。"""
+    xs: List[np.ndarray] = []
+    ys: List[np.ndarray] = []
     for m in models.values():
         m.eval()
     with torch.no_grad():
@@ -76,6 +158,7 @@ def _compute_embeddings(models, loader: DataLoader, config) -> Tuple[np.ndarray,
     return np.concatenate(xs, axis=0), np.concatenate(ys, axis=0)
 
 def _compute_clustering_metrics(models, loader, config):
+    """埋め込みにKMeansクラスタリングを行い ARI/NMI/平均 を返す。"""
     X, y = _compute_embeddings(models, loader, config)
     n_clusters = len(np.unique(y))
     pred = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(X)
@@ -83,47 +166,58 @@ def _compute_clustering_metrics(models, loader, config):
     nmi = normalized_mutual_info_score(y, pred)
     return ari, nmi, (ari + nmi) / 2
 
-LOSS_FN_MAP = {
-    "improved": losses.TripletMarginLoss,
-    "cosine": losses.TripletMarginLoss,
-    "default": losses.TripletMarginLoss,
-    "supcon": losses.SupConLoss,
-}
+def get_loss_fn_and_miner(
+    loss_type: str,
+    temperature: float = 0.07,
+    triplet_margin: float = 0.1,
+) -> Tuple[nn.Module, Optional[nn.Module]]:
+    """loss_type に応じて損失関数と Triplet マイナーを返す。
 
-def get_loss_fn_and_miner(loss_type: str, temperature: float = 0.07) -> Tuple[nn.Module, Optional[nn.Module]]:
-    miner = None
+    supcon: SupConLoss (温度パラメータあり)
+    cosine: CosineSimilarity距離ベースの Triplet + ハードマイニング
+    その他: L2距離ベースの Triplet + ハードマイニング
+    """
+    miner: Optional[nn.Module] = None
+
     if loss_type == "supcon":
-        loss_fn = LOSS_FN_MAP[loss_type](temperature=temperature)
+        loss_fn = losses.SupConLoss(temperature=temperature)
+
     elif loss_type == "cosine":
         distance = distances.CosineSimilarity()
-        loss_fn = LOSS_FN_MAP[loss_type](distance=distance, margin=0.1)
-        miner = miners.TripletMarginMiner(margin=0.1, distance=distance, type_of_triplets="hard")
+        loss_fn = losses.TripletMarginLoss(distance=distance, margin=triplet_margin)
+        miner = miners.TripletMarginMiner(
+            margin=triplet_margin, distance=distance, type_of_triplets="hard"
+        )
+
     else:
-        loss_fn = LOSS_FN_MAP[loss_type](margin=0.1)
-        miner = miners.TripletMarginMiner(margin=0.1, type_of_triplets="hard")
+        loss_fn = losses.TripletMarginLoss(margin=triplet_margin)
+        miner = miners.TripletMarginMiner(
+            margin=triplet_margin, type_of_triplets="hard"
+        )
+
     return loss_fn, miner
 
+
 def _build_inference_models(config: Dict[str, Any], D: int, fusion: Optional[nn.Module] = None) -> nn.ModuleDict:
+    """推論専用のモデル辞書を構築"""
     models = nn.ModuleDict()
     if config.get('use_adversarial'):
-        models['action_encoder'] = (
-            ActionMLPNet(D, 256, 256) if config.get('use_mlp') else ActionLinearNet(D, 256)
-        ).to(DEVICE)
+        models['action_encoder'] = ActionMLPNet(D, 256, 256).to(DEVICE)
         if fusion is not None:
             models['fusion'] = fusion.to(DEVICE)
     else:
-        models['net'] = (
-            SimpleMLPNet(D, 256, 256) if config.get('use_mlp') else SimpleLinearNet(D, 256)
-        ).to(DEVICE)
+        models['net'] = SimpleMLPNet(D, 256, 256).to(DEVICE)
         if fusion is not None:
             models['fusion'] = fusion.to(DEVICE)
     return models
 
 
 def _encode_batch(models: nn.ModuleDict, batch: Tuple[torch.Tensor, ...], config: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
-    """Move batch to DEVICE, optionally fuse features, and return encoded vectors and labels.
+    """入力バッチを適切なエンコーダで特徴量に変換する。
 
-    Returns (a_vec, action_labels, species_labels).
+    gated モード: (x3d特徴, vmae特徴, action, species)
+    それ以外: (feature, action, species)
+    戻り値: (埋め込み, actionラベル, speciesラベル, α(ゲート係数またはNone))
     """
     if config['train_mode'] == 'gated':
         x3d, vmae, a, s = batch
@@ -153,10 +247,11 @@ def train_step(
     config: Dict[str, Any],
     le_sp: LabelEncoder,
 ) -> Tuple[float, Optional[np.ndarray]]:
-    """One training step over a single batch.
-
-    - Updates discriminator first if adversarial, using detached embeddings.
-    - Then updates encoder (and fusion) with main loss (+ adversarial KL if enabled).
+    """1バッチ分の学習ステップを実行する。
+        adversarial が有効な場合は判別器を先に更新し、その後でエンコーダ（+融合層）を
+        主タスク損失と（必要なら）逆学習のKL損失で更新する。
+    戻り値:
+        total_loss値、gated時のα (numpy) あるいは None
     """
     for model in models.values():
         model.train()
@@ -211,8 +306,6 @@ def train_step(
         alpha_np = alpha.detach().cpu().numpy()
     return float(total_loss.item()), alpha_np
 
-
-
 def evaluate_model(
     models: nn.ModuleDict,
     loader: DataLoader,
@@ -221,7 +314,7 @@ def evaluate_model(
     miner: Optional[nn.Module],
     fusion: Optional[nn.Module] = None,
 ) -> float:
-    """Evaluate average loss on a loader without gradients."""
+    """勾配計算を行わずにローダ全体の平均損失を評価する。"""
     for model in models.values():
         model.eval()
     eval_losses: List[float] = []
@@ -251,7 +344,7 @@ def train_model(
     is_ablation: bool = False,
     ablation_subdir: Optional[str] = None,
 ) -> float:
-    """Train for up to MAX_EPOCHS with early stopping, saving best state_dict per trial."""
+    """最大 MAX_EPOCHS まで学習し、早期終了を用いて最良モデルを保存する。"""
     S = len(le_sp.classes_)
     sample_data = next(iter(train_loader))[0]
     D = config['fused_dim'] if fusion is not None else sample_data.shape[1]
@@ -285,21 +378,12 @@ def train_model(
             params_to_optimize, lr=float(config['lr']), weight_decay=wd
         )
 
-    loss_fn, miner = get_loss_fn_and_miner(config['loss_type'], config.get('temperature', 0.07))
-    # ユーザー要望の "tripletloss の alpha" として、TripletMarginLoss/Miner の margin を動的に上書き
-    if config['loss_type'] != 'supcon':
-        tm = float(config.get('triplet_margin', 0.1))
-        # 一部の実装では属性が存在しない可能性もあるため安全にセット
-        if hasattr(loss_fn, 'margin'):
-            try:
-                loss_fn.margin = tm
-            except Exception:
-                pass
-        if miner is not None and hasattr(miner, 'margin'):
-            try:
-                miner.margin = tm
-            except Exception:
-                pass
+    #損失関数とマイナーの構築
+    loss_fn, miner = get_loss_fn_and_miner(
+        config["loss_type"],
+        temperature=config.get("temperature", 0.07),
+        triplet_margin=config.get("triplet_margin", 0.1),   
+    )
 
     run_name = run_name_override or (wandb.run.name if wandb.run else None) or "local-run"
     # Save locations entirely under results_root (train_result/<date>)
@@ -345,20 +429,7 @@ def train_model(
         avg_val_loss = evaluate_model(models, val_loader, config, loss_fn, miner, fusion=fusion_for_eval)
 
         # --- αの保存（毎エポック、非アブレーション時のみ、一時フォルダに蓄積） ---
-        if config.get('train_mode') == 'gated' and alpha_epoch_parts and not is_ablation:
-            alpha_epoch = np.concatenate(alpha_epoch_parts, axis=0)
-            # Save to temporary stash under results_root/alpha_logs_tmp/trial_XXX
-            if results_root is not None:
-                alpha_tmp_dir = Path(results_root) / 'alpha_logs_tmp' / f"trial_{trial.number:03d}"
-            else:
-                date_dir = datetime.now().strftime("%Y-%m-%d")
-                alpha_tmp_dir = Path('./train_result') / date_dir / 'alpha_logs_tmp' / f"trial_{trial.number:03d}"
-            alpha_tmp_dir.mkdir(parents=True, exist_ok=True)
-            alpha_tmp_path = alpha_tmp_dir / f"alpha_trial{trial.number:03d}_epoch{epoch+1:03d}.npy"
-            try:
-                np.save(str(alpha_tmp_path), alpha_epoch)
-            except Exception as e:
-                print(f"⚠️ Failed to save temp alpha for trial #{trial.number}, epoch {epoch+1}: {e}")
+        save_alpha_epoch(alpha_epoch_parts, epoch + 1, config, trial, results_root, is_ablation)
 
         if wandb.run is not None:
             wandb.log({"epoch": epoch + 1, "train_loss": avg_train_loss, "val_loss": avg_val_loss})
@@ -385,17 +456,9 @@ def train_model(
             alpha_epoch_parts.clear()
         except Exception:
             pass
-        if torch.cuda.is_available():
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-        gc.collect()
+        cleanup_memory()
 
-    # Record final epochs run
     trial.set_user_attr("epochs_run", int(epoch + 1))
-
-    # No final alpha save here; per-epoch alphas are stashed during training for later pruning
 
     return float(best_val_loss)
 
@@ -455,44 +518,10 @@ def objective(trial: optuna.trial.Trial, full_df: pd.DataFrame, le_act: LabelEnc
         )
     
     train_df, val_df = train_test_split(full_df, test_size=0.2, random_state=42, stratify=full_df['action'])
-    
-    datatype = config['datatype']
-    vmae_json_path = f"./vector/{datatype}/train/vectors_sliding_base.json"
-    x3d_dir_path = f"./x3d_output/{datatype}/train"
-    x3d_centered_dir_path = f"./x3d_output_centered/{datatype}/train"
-    
-    current_x3d_path = x3d_centered_dir_path if config.get('flow_preprocessing') == 'centered' else x3d_dir_path
-    
-    fusion_model = None
-    if config['train_mode'] == 'mae':
-        train_dataset = MAEDataset(train_df, vmae_json_path, le_act, le_sp)
-        val_dataset = MAEDataset(val_df, vmae_json_path, le_act, le_sp)
-    elif config['train_mode'] == 'flow':
-        train_dataset = FlowNpyDataset(train_df, current_x3d_path, le_act, le_sp)
-        val_dataset = FlowNpyDataset(val_df, current_x3d_path, le_act, le_sp)
-    elif config['train_mode'] == 'gated':
-        train_dataset = X3DVideoMAEDataset(train_df, current_x3d_path, vmae_json_path, le_act, le_sp)
-        val_dataset = X3DVideoMAEDataset(val_df, current_x3d_path, vmae_json_path, le_act, le_sp)
-        fusion_model = GatedFusion(2048, 768, config['fused_dim']).to(DEVICE)
-    
-    # DataLoader runtime settings with env overrides
-    workers = int(os.getenv("DATALOADER_NUM_WORKERS", "0"))
-    pin_env = os.getenv("PIN_MEMORY", "auto").lower()
-    pin_mem = torch.cuda.is_available() if pin_env == "auto" else (pin_env in ["1", "true", "yes"]) 
 
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=int(config['batch_size']),
-        shuffle=True,
-        num_workers=workers,
-        pin_memory=pin_mem,
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=int(config['batch_size']),
-        shuffle=False,
-        num_workers=workers,
-        pin_memory=pin_mem,
+    # データローダの構築（重複ロジックを関数化）
+    train_loader, val_loader, fusion_model = build_datasets_and_loaders(
+        config, train_df, val_df, le_act, le_sp
     )
 
     study_name = trial.study.study_name
@@ -500,7 +529,11 @@ def objective(trial: optuna.trial.Trial, full_df: pd.DataFrame, le_act: LabelEnc
     trial.set_user_attr("study_name", study_name)
 
     try:
-        best_val_loss = train_model(config, train_loader, val_loader, le_sp, trial, study_name, fusion=fusion_model, results_root=results_root)
+        # 学習本体（早期終了/ベスト保存を内部で実施）
+        best_val_loss = train_model(
+            config, train_loader, val_loader, le_sp, trial, study_name,
+            fusion=fusion_model, results_root=results_root
+        )
         # --- Compute clustering metrics (ARI/NMI) on validation embeddings ---
         model_path = trial.user_attrs.get("model_save_path")
         ari_val, nmi_val, combined_val = -1.0, -1.0, -1.0
@@ -538,12 +571,7 @@ def objective(trial: optuna.trial.Trial, full_df: pd.DataFrame, le_act: LabelEnc
             del train_dataset, val_dataset, fusion_model
         except Exception:
             pass
-        if torch.cuda.is_available():
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-        gc.collect()
+        cleanup_memory()
 
     wandb.finish()
     # Optional per-trial completion notification
@@ -629,47 +657,13 @@ def train_with_config(
     study_name: str = "ablation",
     trial_number: int = -1,
     category: Optional[str] = None,
-) -> Tuple[float, Optional[str]]:
+    ) -> Tuple[float, Optional[str]]:
+    """与えられた設定で1度だけ学習を回し、検証損失と保存モデルパスを返す。"""
     # Split data
     train_df, val_df = train_test_split(full_df, test_size=0.2, random_state=42, stratify=full_df['action'])
 
-    datatype = config['datatype']
-    vmae_json_path = f"./vector/{datatype}/train/vectors_sliding_base.json"
-    x3d_dir_path = f"./x3d_output/{datatype}/train"
-    x3d_centered_dir_path = f"./x3d_output_centered/{datatype}/train"
-    current_x3d_path = x3d_centered_dir_path if config.get('flow_preprocessing') == 'centered' else x3d_dir_path
-
-    fusion_model = None
-    if config['train_mode'] == 'mae':
-        train_dataset = MAEDataset(train_df, vmae_json_path, le_act, le_sp)
-        val_dataset = MAEDataset(val_df, vmae_json_path, le_act, le_sp)
-    elif config['train_mode'] == 'flow':
-        train_dataset = FlowNpyDataset(train_df, current_x3d_path, le_act, le_sp)
-        val_dataset = FlowNpyDataset(val_df, current_x3d_path, le_act, le_sp)
-    elif config['train_mode'] == 'gated':
-        train_dataset = X3DVideoMAEDataset(train_df, current_x3d_path, vmae_json_path, le_act, le_sp)
-        val_dataset = X3DVideoMAEDataset(val_df, current_x3d_path, vmae_json_path, le_act, le_sp)
-        fusion_model = GatedFusion(2048, 768, config['fused_dim']).to(DEVICE)
-    else:
-        raise ValueError(f"Unknown train_mode: {config['train_mode']}")
-
-    workers = int(os.getenv("DATALOADER_NUM_WORKERS", "0"))
-    pin_env = os.getenv("PIN_MEMORY", "auto").lower()
-    pin_mem = torch.cuda.is_available() if pin_env == "auto" else (pin_env in ["1", "true", "yes"]) 
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=int(config['batch_size']),
-        shuffle=True,
-        num_workers=workers,
-        pin_memory=pin_mem,
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=int(config['batch_size']),
-        shuffle=False,
-        num_workers=workers,
-        pin_memory=pin_mem,
+    train_loader, val_loader, fusion_model = build_datasets_and_loaders(
+        config, train_df, val_df, le_act, le_sp
     )
 
     dummy_trial = DummyTrial(number=trial_number)
@@ -699,16 +693,18 @@ def train_with_config(
             del train_dataset, val_dataset, fusion_model
         except Exception:
             pass
-        if torch.cuda.is_available():
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-        gc.collect()
+        cleanup_memory()
     return best_val, dummy_trial.user_attrs.get("model_save_path")
 
 # --- メイン実行ブロック ---
 def main() -> None:
+    """エントリポイント。
+
+    - 環境設定の読み込み
+    - Optunaスタディの作成と最適化
+    - ベスト試行の要約とチェックポイント整理
+    - （任意）アブレーションの実行
+    """
     # Load .env (optional)
     # .env is already loaded via python-dotenv at import time
     # Storage selection: use in-memory if OPTUNA_INMEMORY=1 or OPTUNA_STORAGE is empty/memory
@@ -741,7 +737,11 @@ def main() -> None:
         "Loss types: improved | cosine | default | supcon"
     )
     
-    _discord_notify(msg)
+    # Discord通知（例外は握りつぶして進行を妨げない）
+    try:
+        discord_notify(content=msg)
+    except Exception:
+        pass
 
     print("Loading initial data...")
     datatype = 'animalkingdom'
@@ -788,12 +788,7 @@ def main() -> None:
     study.optimize(lambda trial: objective(trial, full_df, le_act, le_sp, results_root), n_trials=N_TRIALS_PER_STUDY, gc_after_trial=True)
 
     # Extra cleanup after the study finishes
-    if torch.cuda.is_available():
-        try:
-            torch.cuda.empty_cache()
-        except Exception:
-            pass
-    gc.collect()
+    cleanup_memory()
 
     print(f"\n--- Best Trial (mixed) ---")
     print(f"Value (combined ARI/NMI): {study.best_value}")
@@ -1080,12 +1075,6 @@ def main() -> None:
                 for r in rows:
                     writer.writerow(r)
             print(f"✅ Ablation results saved to {csv_path}")
-    discord_notify(
-        content=(
-            f"🧹 Cleanup done. Kept {len(paths_to_keep)} best models; deleted {deleted_count}.\n"
-            f"Summary: {summary_path}"
-        )
-    )
 
 
 if __name__ == "__main__":

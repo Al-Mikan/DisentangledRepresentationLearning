@@ -7,6 +7,10 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
+import gc
+from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+from torch.utils.data import DataLoader
 
 class BaseDataset(Dataset):
     """データセットの共通処理を担う基底クラス"""
@@ -87,6 +91,15 @@ class X3DVideoMAEDataset(BaseDataset):
         )
     
 
+
+def set_seed(seed: int = 42) -> None:
+    """Set seeds for reproducibility where practical."""
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 # ---------------------------------
 # Discord notification (optional)
 # ---------------------------------
@@ -134,3 +147,36 @@ def discord_notify(
 
     except Exception as e:
         print(f"[discord_notify] ❌ Failed to send message: {e}")
+
+
+def cleanup_memory() -> None:
+    """CUDAキャッシュとガーベジコレクションを呼び出してメモリを解放する。"""
+    if torch.cuda.is_available():
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+    gc.collect()
+
+
+def _compute_embeddings(models, loader: DataLoader, config) -> Tuple[np.ndarray, np.ndarray]:
+    """ローダ全体をエンコードし (特徴行列, ラベルベクトル) を返す。"""
+    xs: List[np.ndarray] = []
+    ys: List[np.ndarray] = []
+    for m in models.values():
+        m.eval()
+    with torch.no_grad():
+        for batch in loader:
+            a_vec, a, *_ = _encode_batch(models, batch, config)
+            xs.append(a_vec.detach().cpu().numpy())
+            ys.append(a.detach().cpu().numpy())
+    return np.concatenate(xs, axis=0), np.concatenate(ys, axis=0)
+
+def _compute_clustering_metrics(models, loader, config):
+    """埋め込みにKMeansクラスタリングを行い ARI/NMI/平均 を返す。"""
+    X, y = _compute_embeddings(models, loader, config)
+    n_clusters = len(np.unique(y))
+    pred = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(X)
+    ari = adjusted_rand_score(y, pred)
+    nmi = normalized_mutual_info_score(y, pred)
+    return ari, nmi, (ari + nmi) / 2
