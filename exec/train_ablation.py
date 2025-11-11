@@ -7,7 +7,9 @@ from copy import deepcopy
 from pathlib import Path
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
-from train_core import train_with_config, cleanup_memory
+from sklearn.model_selection import train_test_split
+from train_core import train_with_config, cleanup_memory,build_datasets_and_loaders, train_model, build_basename_from_config, DummyTrial
+
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -41,19 +43,24 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
     ab_yaml = load_yaml(abl_path)
     output_root = Path(base_yaml.get("output_root", "./train_result"))
 
+    # --- 共通DataLoaderを構築（1回だけ） ---
+    train_df, val_df = train_test_split(full_df, test_size=0.2, random_state=42, stratify=full_df['action'])
+    base_cfg = deepcopy(base_yaml)
+    base_cfg.update(baseline_params)
+    train_loader, val_loader, fusion_base = build_datasets_and_loaders(base_cfg, train_df, val_df, le_act, le_sp)
+
+
     # === 実行対象 run_dir の決定 ===
     if run_dir_manual is not None:
         run_dir = Path(run_dir_manual)
         if not run_dir.exists():
             raise FileNotFoundError(f"❌ 指定された run_dir が存在しません: {run_dir}")
         latest_run_dir = run_dir
-        print(f"🧩 Using manually specified run dir: {latest_run_dir}")
     else:
         run_dirs = sorted(output_root.glob("run_*"))
         if not run_dirs:
             raise FileNotFoundError(f"❌ No run_xxx directory found under {output_root}")
         latest_run_dir = run_dirs[-1]
-        print(f"🧩 Using latest run dir: {latest_run_dir}")
 
     # === baseline_config.json 読み込み ===
     baseline_params = load_baseline_json(latest_run_dir)
@@ -62,69 +69,50 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
     # === ablation/ フォルダ作成 ===
     ablation_root = latest_run_dir / "ablation"
     ablation_root.mkdir(parents=True, exist_ok=True)
-
-    # === 各キーごとに ablation/{key}/value/ を作成して順番に実行 ===
+    # === Ablation loop ===
     for key, values in ab_yaml.items():
         if not isinstance(values, list):
             continue
-
-        key_name = "mode" if key == "train_mode" else key
-        key_dir = ablation_root / key_name
+        key_dir = ablation_root / key
         key_dir.mkdir(parents=True, exist_ok=True)
 
         for v in values:
-            # ベース設定 + baseline最適値をマージ
-            cfg = deepcopy(base_yaml)
-            cfg.update(baseline_params)
+            cfg = deepcopy(base_cfg)
             cfg[key] = v
 
-            # === 共通デフォルトをここで強制しておく ===
-
-            # device（必ずGPUを使う）
-            cfg.setdefault("device", "cuda" if torch.cuda.is_available() else "cpu")
-
-            # DataLoader最適化（なければ設定）
-            if "num_workers" not in cfg:
-                try:
-                    cpu_count = multiprocessing.cpu_count()
-                except Exception:
-                    cpu_count = 4
-                # CPUに合わせてほどほど（必要ならここ調整）
-                cfg["num_workers"] = max(2, cpu_count // 2) if torch.cuda.is_available() else 0
-
-            if "pin_memory" not in cfg:
-                cfg["pin_memory"] = torch.cuda.is_available()
-
-            # 検証頻度（train_core側で val_interval 対応しているなら有効）
-            cfg.setdefault("val_interval", 1)
-
-            # 出力先（各 ablation パターンごとに分離）
             ab_dir = key_dir / str(v)
             ab_dir.mkdir(parents=True, exist_ok=True)
             cfg["output_root"] = str(ab_dir)
 
-            print(f"\n🚀 Running ablation: {key} = {v}")
-            print(f"   device={cfg['device']}, num_workers={cfg['num_workers']}, pin_memory={cfg['pin_memory']}")
+            # fusion modelは毎回初期化（重みリセット用）
+            fusion_model = None
+            if cfg["train_mode"] == "gated":
+                from model import GatedFusion
+                fusion_model = GatedFusion(2048, 768, int(cfg["fused_dim"])).to(DEVICE)
 
-            # === GPUキャッシュを事前クリア ===
+            dummy_trial = DummyTrial()
+            run_name = build_basename_from_config(cfg)
+
+            print(f"\n🚀 Ablation: {key} = {v}")
+
+            # === 学習本体（DataLoader再利用） ===
+            best_val = train_model(
+                cfg,
+                train_loader,
+                val_loader,
+                le_sp,
+                dummy_trial,
+                study_name="ablation",
+                fusion=fusion_model,
+                results_root=ab_dir,
+                run_name_override=run_name,
+                is_ablation=True,
+                ablation_subdir=key,
+            )
+
+            print(f"✅ {key}={v}: val_loss={best_val:.5f}")
+            del fusion_model
             cleanup_memory()
-
-            try:
-                val_loss, model_path = train_with_config(
-                    cfg, full_df, le_act, le_sp, results_root=ab_dir
-                )
-                print(f"✅ Done: {key}={v}, val_loss={val_loss:.6f}")
-                if model_path:
-                    print(f"📦 Saved model: {model_path}")
-            except Exception as e:
-                print(f"❌ Error in ablation {key}={v}: {e}")
-            finally:
-                # === GPU/CPUメモリを完全解放 ===
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                print("🧹 Memory cleaned up\n")
-
 
 # === Entry point ===
 
