@@ -27,6 +27,31 @@ def load_baseline_json(run_dir: Path) -> dict:
     return merged
 
 
+def merge_configs(base_yaml: dict, baseline_json: dict) -> dict:
+    """
+    config_search.yml のデフォルト設定をベースに、
+    baseline_config.json の値で上書きして統合。
+    """
+    merged = {}
+
+    def recursive_merge(yaml_dict, baseline_dict):
+        result = {}
+        for k, v in yaml_dict.items():
+            if isinstance(v, dict):
+                result[k] = recursive_merge(v, baseline_dict.get(k, {}))
+            else:
+                # baselineにキーがあれば上書き、なければYAMLの値
+                result[k] = baseline_dict.get(k, v)
+        # baselineにあってyamlにないキーも足す
+        for k, v in baseline_dict.items():
+            if k not in result:
+                result[k] = v
+        return result
+
+    merged = recursive_merge(base_yaml, baseline_json)
+    return merged
+
+
 # === Main function ===
 
 def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
@@ -43,8 +68,11 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
     baseline_params = load_baseline_json(run_dir)
     print(f"✅ Loaded baseline parameters from {run_dir}/baseline_config.json")
 
+    # === baselineとconfig_search.ymlをマージ ===
+    merged_base = merge_configs(base_yaml, baseline_params)
+
     # === データ読み込み ===
-    datatype = base_yaml.get("datatype", "animalkingdom")
+    datatype = merged_base.get("datatype", "animalkingdom")
     full_csv_path = f"./label/{datatype}/train/labels.csv"
     full_df = pd.read_csv(full_csv_path)
     le_act = LabelEncoder().fit(full_df["action"])
@@ -60,7 +88,7 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
         if not isinstance(values, list):
             continue
         for v in values:
-            trial_params = baseline_params.copy()
+            trial_params = merged_base.copy()  # ← 統合済み設定を基礎に
             trial_params[key] = v
             study.enqueue_trial(trial_params)
             enqueue_count += 1
@@ -80,7 +108,7 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
             le_act,
             le_sp,
             results_root=ablation_dir,
-            search_space=None,
+            search_space=None,  # Ablation用
         ),
         n_trials=enqueue_count,
         gc_after_trial=True,
