@@ -2,14 +2,18 @@ import torch
 import yaml
 import json
 import gc
-import multiprocessing
 from copy import deepcopy
 from pathlib import Path
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
-from train_core import train_with_config, cleanup_memory,build_datasets_and_loaders, train_model, build_basename_from_config, DummyTrial
-
+from train_core import (
+    cleanup_memory,
+    build_datasets_and_loaders,
+    train_model,
+    build_basename_from_config,
+    DummyTrial,
+)
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -29,7 +33,6 @@ def load_baseline_json(run_dir: Path) -> dict:
         raise FileNotFoundError(f"❌ baseline_config.json not found in {run_dir}")
     with open(baseline_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-
     merged = data.get("params", {}).copy()
     merged.update(data.get("user_attrs", {}))
     return merged
@@ -38,17 +41,10 @@ def load_baseline_json(run_dir: Path) -> dict:
 # === Main Ablation runner ===
 
 def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str = None):
-    # === baseline設定 ===
+    # === 設定ファイル読み込み ===
     base_yaml = load_yaml(cfg_path)
     ab_yaml = load_yaml(abl_path)
     output_root = Path(base_yaml.get("output_root", "./train_result"))
-
-    # --- 共通DataLoaderを構築（1回だけ） ---
-    train_df, val_df = train_test_split(full_df, test_size=0.2, random_state=42, stratify=full_df['action'])
-    base_cfg = deepcopy(base_yaml)
-    base_cfg.update(baseline_params)
-    train_loader, val_loader, fusion_base = build_datasets_and_loaders(base_cfg, train_df, val_df, le_act, le_sp)
-
 
     # === 実行対象 run_dir の決定 ===
     if run_dir_manual is not None:
@@ -66,36 +62,50 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
     baseline_params = load_baseline_json(latest_run_dir)
     print(f"✅ Loaded baseline parameters from {latest_run_dir}/baseline_config.json")
 
+    # --- 共通データ分割 ---
+    train_df, val_df = train_test_split(
+        full_df, test_size=0.2, random_state=42, stratify=full_df["action"]
+    )
+
+    # --- 共通DataLoaderを1回だけ構築 ---
+    base_cfg = deepcopy(base_yaml)
+    base_cfg.update(baseline_params)
+    train_loader, val_loader, _ = build_datasets_and_loaders(
+        base_cfg, train_df, val_df, le_act, le_sp
+    )
+
     # === ablation/ フォルダ作成 ===
-    ablation_root = latest_run_dir / "ablation"
+    ablation_root = latest_run_dir / "ablation_fast"
     ablation_root.mkdir(parents=True, exist_ok=True)
+
     # === Ablation loop ===
     for key, values in ab_yaml.items():
         if not isinstance(values, list):
             continue
+
         key_dir = ablation_root / key
         key_dir.mkdir(parents=True, exist_ok=True)
 
         for v in values:
+            # --- baseline設定を複製して差分適用 ---
             cfg = deepcopy(base_cfg)
             cfg[key] = v
-
             ab_dir = key_dir / str(v)
             ab_dir.mkdir(parents=True, exist_ok=True)
             cfg["output_root"] = str(ab_dir)
 
-            # fusion modelは毎回初期化（重みリセット用）
+            # --- gatedモードのみfusionを初期化 ---
             fusion_model = None
-            if cfg["train_mode"] == "gated":
+            if cfg.get("train_mode") == "gated":
                 from model import GatedFusion
                 fusion_model = GatedFusion(2048, 768, int(cfg["fused_dim"])).to(DEVICE)
 
             dummy_trial = DummyTrial()
             run_name = build_basename_from_config(cfg)
 
-            print(f"\n🚀 Ablation: {key} = {v}")
+            print(f"\n🚀 Running Ablation: {key} = {v}")
 
-            # === 学習本体（DataLoader再利用） ===
+            # === 学習（DataLoader再利用） ===
             best_val = train_model(
                 cfg,
                 train_loader,
@@ -110,12 +120,16 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
                 ablation_subdir=key,
             )
 
-            print(f"✅ {key}={v}: val_loss={best_val:.5f}")
+            print(f"✅ Done: {key}={v}, val_loss={best_val:.5f}")
+
+            # --- メモリ解放 ---
             del fusion_model
             cleanup_memory()
 
-# === Entry point ===
+    print("\n🎯 All ablations completed successfully!\n")
 
+
+# === Entry point ===
 if __name__ == "__main__":
     datatype = "animalkingdom"
     full_csv_path = f"./label/{datatype}/train/labels.csv"
@@ -129,5 +143,5 @@ if __name__ == "__main__":
         full_df,
         le_act,
         le_sp,
-        run_dir_manual="train_result/2025-11-11/run_001"
+        run_dir_manual="train_result/2025-11-11/run_001",
     )
