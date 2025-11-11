@@ -76,6 +76,9 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
             cfg.update(baseline_params)
             cfg[key] = v
 
+            if "device" not in cfg:
+                cfg["device"] = "cuda" if torch.cuda.is_available() else "cpu"
+
             ab_dir = key_dir / str(v)
             ab_dir.mkdir(parents=True, exist_ok=True)
             cfg["output_root"] = str(ab_dir)
