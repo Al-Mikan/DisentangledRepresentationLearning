@@ -1,13 +1,18 @@
 import torch
 import yaml
 import json
+import gc
 from copy import deepcopy
 from pathlib import Path
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
-from train_core import train_with_config
+from train_core import train_with_config, cleanup_memory
+
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+# === Helper functions ===
 
 def load_yaml(path):
     with open(path, "r", encoding="utf-8") as f:
@@ -22,19 +27,20 @@ def load_baseline_json(run_dir: Path) -> dict:
     with open(baseline_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # params（Optuna探索パラメータ）と user_attrs（学習モードなど）を統合
     merged = data.get("params", {}).copy()
     merged.update(data.get("user_attrs", {}))
     return merged
 
+
+# === Main Ablation runner ===
+
 def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str = None):
-    # === baseline設定（共通） ===
+    # === baseline設定 ===
     base_yaml = load_yaml(cfg_path)
     ab_yaml = load_yaml(abl_path)
-
     output_root = Path(base_yaml.get("output_root", "./train_result"))
 
-    # ✅ ここで手動指定を優先
+    # === 実行対象 run_dir の決定 ===
     if run_dir_manual is not None:
         run_dir = Path(run_dir_manual)
         if not run_dir.exists():
@@ -42,7 +48,6 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
         latest_run_dir = run_dir
         print(f"🧩 Using manually specified run dir: {latest_run_dir}")
     else:
-        # 自動で最新のrunを探す
         run_dirs = sorted(output_root.glob("run_*"))
         if not run_dirs:
             raise FileNotFoundError(f"❌ No run_xxx directory found under {output_root}")
@@ -57,7 +62,7 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
     ablation_root = latest_run_dir / "ablation"
     ablation_root.mkdir(parents=True, exist_ok=True)
 
-    # === 各キーごとに ablation/{key}/value/ を作成して実行 ===
+    # === 各キーごとに ablation/{key}/value/ を作成して順番に実行 ===
     for key, values in ab_yaml.items():
         if not isinstance(values, list):
             continue
@@ -70,15 +75,33 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
             cfg = deepcopy(base_yaml)
             cfg.update(baseline_params)
             cfg[key] = v
-            
+
             ab_dir = key_dir / str(v)
             ab_dir.mkdir(parents=True, exist_ok=True)
             cfg["output_root"] = str(ab_dir)
 
-            print(f"🚀 Running ablation: {key} = {v}")
-            val_loss, model_path = train_with_config(cfg, full_df, le_act, le_sp, ab_dir)
+            print(f"\n🚀 Running ablation: {key} = {v}")
+
+            # === GPUキャッシュを事前クリア ===
+            cleanup_memory()
+
+            try:
+                val_loss, model_path = train_with_config(
+                    cfg, full_df, le_act, le_sp, results_root=ab_dir
+                )
+                print(f"✅ Done: {key}={v}, val_loss={val_loss:.6f}")
+                if model_path:
+                    print(f"📦 Saved model: {model_path}")
+            except Exception as e:
+                print(f"❌ Error in ablation {key}={v}: {e}")
+            finally:
+                # === GPU/CPUメモリを完全解放 ===
+                gc.collect()
+                torch.cuda.empty_cache()
+                print("🧹 Memory cleaned up\n")
 
 
+# === Entry point ===
 
 if __name__ == "__main__":
     datatype = "animalkingdom"
@@ -87,7 +110,6 @@ if __name__ == "__main__":
     le_act = LabelEncoder().fit(full_df["action"])
     le_sp = LabelEncoder().fit(full_df["species"])
 
-    # ✅ 手動で run ディレクトリを指定
     run_ablation(
         "exec/config_search.yml",
         "exec/ablation.yml",
