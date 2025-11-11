@@ -38,7 +38,7 @@ def load_baseline_json(run_dir: Path) -> dict:
     return merged
 
 
-# === Main Ablation runner ===
+# === Main Ablation Runner ===
 
 def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str = None):
     # === 設定ファイル読み込み ===
@@ -62,23 +62,22 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
     baseline_params = load_baseline_json(latest_run_dir)
     print(f"✅ Loaded baseline parameters from {latest_run_dir}/baseline_config.json")
 
-    # --- 共通データ分割 ---
+    # --- 共通データ分割（再現性のため固定） ---
     train_df, val_df = train_test_split(
         full_df, test_size=0.2, random_state=42, stratify=full_df["action"]
     )
 
-    # --- 共通DataLoaderを1回だけ構築 ---
+    # --- base config作成 ---
     base_cfg = deepcopy(base_yaml)
     base_cfg.update(baseline_params)
-    train_loader, val_loader, _ = build_datasets_and_loaders(
-        base_cfg, train_df, val_df, le_act, le_sp
-    )
 
     # === ablation/ フォルダ作成 ===
     ablation_root = latest_run_dir / "ablation_fast"
     ablation_root.mkdir(parents=True, exist_ok=True)
 
-    # === Ablation loop ===
+    prev_mode = None  # 前回の train_mode を記録（同じなら DataLoader 再利用）
+
+    # === Ablation Loop ===
     for key, values in ab_yaml.items():
         if not isinstance(values, list):
             continue
@@ -90,9 +89,18 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
             # --- baseline設定を複製して差分適用 ---
             cfg = deepcopy(base_cfg)
             cfg[key] = v
+
             ab_dir = key_dir / str(v)
             ab_dir.mkdir(parents=True, exist_ok=True)
             cfg["output_root"] = str(ab_dir)
+
+            # === train_mode ごとに DataLoader 再構築 ===
+            if cfg.get("train_mode") != prev_mode:
+                print(f"\n🧩 Rebuilding DataLoader for train_mode={cfg['train_mode']}")
+                train_loader, val_loader, _ = build_datasets_and_loaders(
+                    cfg, train_df, val_df, le_act, le_sp
+                )
+                prev_mode = cfg.get("train_mode")
 
             # --- gatedモードのみfusionを初期化 ---
             fusion_model = None
@@ -105,31 +113,40 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
 
             print(f"\n🚀 Running Ablation: {key} = {v}")
 
-            # === 学習（DataLoader再利用） ===
-            best_val = train_model(
-                cfg,
-                train_loader,
-                val_loader,
-                le_sp,
-                dummy_trial,
-                study_name="ablation",
-                fusion=fusion_model,
-                results_root=ab_dir,
-                run_name_override=run_name,
-                is_ablation=True,
-                ablation_subdir=key,
-            )
+            try:
+                # === 学習（DataLoader再利用） ===
+                best_val = train_model(
+                    cfg,
+                    train_loader,
+                    val_loader,
+                    le_sp,
+                    dummy_trial,
+                    study_name="ablation",
+                    fusion=fusion_model,
+                    results_root=ab_dir,
+                    run_name_override=run_name,
+                    is_ablation=True,
+                    ablation_subdir=key,
+                )
 
-            print(f"✅ Done: {key}={v}, val_loss={best_val:.5f}")
+                print(f"✅ Done: {key}={v}, val_loss={best_val:.5f}")
 
-            # --- メモリ解放 ---
-            del fusion_model
-            cleanup_memory()
+            except Exception as e:
+                print(f"❌ Error in ablation {key}={v}: {e}")
+
+            finally:
+                del fusion_model
+                cleanup_memory()
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                print("🧹 Memory cleaned up\n")
 
     print("\n🎯 All ablations completed successfully!\n")
 
 
 # === Entry point ===
+
 if __name__ == "__main__":
     datatype = "animalkingdom"
     full_csv_path = f"./label/{datatype}/train/labels.csv"
