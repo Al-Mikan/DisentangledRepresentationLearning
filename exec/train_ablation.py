@@ -2,6 +2,7 @@ import torch
 import yaml
 import json
 import gc
+import multiprocessing
 from copy import deepcopy
 from pathlib import Path
 import pandas as pd
@@ -72,18 +73,38 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
         key_dir.mkdir(parents=True, exist_ok=True)
 
         for v in values:
+            # ベース設定 + baseline最適値をマージ
             cfg = deepcopy(base_yaml)
             cfg.update(baseline_params)
             cfg[key] = v
 
-            if "device" not in cfg:
-                cfg["device"] = "cuda" if torch.cuda.is_available() else "cpu"
+            # === 共通デフォルトをここで強制しておく ===
 
+            # device（必ずGPUを使う）
+            cfg.setdefault("device", "cuda" if torch.cuda.is_available() else "cpu")
+
+            # DataLoader最適化（なければ設定）
+            if "num_workers" not in cfg:
+                try:
+                    cpu_count = multiprocessing.cpu_count()
+                except Exception:
+                    cpu_count = 4
+                # CPUに合わせてほどほど（必要ならここ調整）
+                cfg["num_workers"] = max(2, cpu_count // 2) if torch.cuda.is_available() else 0
+
+            if "pin_memory" not in cfg:
+                cfg["pin_memory"] = torch.cuda.is_available()
+
+            # 検証頻度（train_core側で val_interval 対応しているなら有効）
+            cfg.setdefault("val_interval", 1)
+
+            # 出力先（各 ablation パターンごとに分離）
             ab_dir = key_dir / str(v)
             ab_dir.mkdir(parents=True, exist_ok=True)
             cfg["output_root"] = str(ab_dir)
 
             print(f"\n🚀 Running ablation: {key} = {v}")
+            print(f"   device={cfg['device']}, num_workers={cfg['num_workers']}, pin_memory={cfg['pin_memory']}")
 
             # === GPUキャッシュを事前クリア ===
             cleanup_memory()
@@ -100,7 +121,8 @@ def run_ablation(cfg_path, abl_path, full_df, le_act, le_sp, run_dir_manual: str
             finally:
                 # === GPU/CPUメモリを完全解放 ===
                 gc.collect()
-                torch.cuda.empty_cache()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 print("🧹 Memory cleaned up\n")
 
 
