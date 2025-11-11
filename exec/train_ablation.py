@@ -97,7 +97,7 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
             le_act,
             le_sp,
             results_root=ablation_dir,
-            search_space=None,  # Ablation用（固定Trial）
+            search_space=None, 
         ),
         n_trials=enqueue_count,
         gc_after_trial=True,

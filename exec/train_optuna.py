@@ -129,8 +129,8 @@ def objective(
         # =========================
         # 実験管理・ログ関連
         # =========================
-        "project_name": search_space.get("project_name", "optuna"),  # wandb上のプロジェクト名
-        "experiment_name": search_space.get("experiment_name", "study"),  # wandb上の実験グループ名
+        "project_name": yaml_cfg.get("project_name", "optuna"),  # wandb上のプロジェクト名
+        "experiment_name": yaml_cfg.get("experiment_name", "study"),  # wandb上の実験グループ名
     }
 
     trial.set_user_attr("train_mode", config["train_mode"])
