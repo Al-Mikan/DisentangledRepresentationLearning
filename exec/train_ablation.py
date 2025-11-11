@@ -27,41 +27,30 @@ def load_baseline_json(run_dir: Path) -> dict:
     return merged
 
 
-def merge_configs(base_yaml: dict, baseline_json: dict) -> dict:
-    """
-    config_search.yml のデフォルト設定をベースに、
-    baseline_config.json の値で上書きして統合。
-    """
-    merged = {}
-
-    def recursive_merge(yaml_dict, baseline_dict):
-        result = {}
-        for k, v in yaml_dict.items():
-            if isinstance(v, dict):
-                result[k] = recursive_merge(v, baseline_dict.get(k, {}))
+def merge_config_in_memory(yaml_config: dict, json_config: dict) -> dict:
+    """YAML設定にbaseline JSONを上書き（ネスト対応）"""
+    def recursive_merge(base, override):
+        result = base.copy()
+        for k, v in override.items():
+            if isinstance(v, dict) and k in result and isinstance(result[k], dict):
+                result[k] = recursive_merge(result[k], v)
             else:
-                # baselineにキーがあれば上書き、なければYAMLの値
-                result[k] = baseline_dict.get(k, v)
-        # baselineにあってyamlにないキーも足す
-        for k, v in baseline_dict.items():
-            if k not in result:
                 result[k] = v
         return result
 
-    merged = recursive_merge(base_yaml, baseline_json)
-    return merged
+    return recursive_merge(yaml_config, json_config)
 
 
 # === Main function ===
 
 def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
     """
-    Ablation.ymlに書かれた複数パターンを、Optunaの固定Trialでまとめて実行。
+    ablation.ymlに書かれた複数パターンを、
+    Optunaの固定Trialでまとめて実行する。
     """
     # === 設定ファイル読み込み ===
     base_yaml = load_yaml(cfg_path)
     ab_yaml = load_yaml(abl_path)
-    output_root = Path(base_yaml.get("output_root", "./train_result"))
     run_dir = Path(run_dir_manual)
 
     # === baseline_config.json読み込み ===
@@ -69,10 +58,10 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
     print(f"✅ Loaded baseline parameters from {run_dir}/baseline_config.json")
 
     # === baselineとconfig_search.ymlをマージ ===
-    merged_base = merge_configs(base_yaml, baseline_params)
+    merged_config = merge_config_in_memory(base_yaml, baseline_params)
 
     # === データ読み込み ===
-    datatype = merged_base.get("datatype", "animalkingdom")
+    datatype = merged_config.get("datatype", "animalkingdom")
     full_csv_path = f"./label/{datatype}/train/labels.csv"
     full_df = pd.read_csv(full_csv_path)
     le_act = LabelEncoder().fit(full_df["action"])
@@ -88,7 +77,7 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
         if not isinstance(values, list):
             continue
         for v in values:
-            trial_params = merged_base.copy()  # ← 統合済み設定を基礎に
+            trial_params = merged_config.copy()
             trial_params[key] = v
             study.enqueue_trial(trial_params)
             enqueue_count += 1
@@ -96,7 +85,7 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
 
     print(f"\n🚀 Enqueued {enqueue_count} fixed ablation trials")
 
-    # === Ablationルートを保存先に設定 ===
+    # === Ablation出力ディレクトリ ===
     ablation_dir = run_dir / "ablation_optuna"
     ablation_dir.mkdir(parents=True, exist_ok=True)
 
@@ -108,7 +97,7 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
             le_act,
             le_sp,
             results_root=ablation_dir,
-            search_space=None,  # Ablation用
+            search_space=None,  # Ablation用（固定Trial）
         ),
         n_trials=enqueue_count,
         gc_after_trial=True,
@@ -117,7 +106,7 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
     # === 結果出力 ===
     print("\n🎯 All Ablation Trials Completed!\n")
     for t in study.get_trials():
-        print(f"[Trial #{t.number}] {t.params} => {t.value:.6f}")
+        print(f"[Trial #{t.number}] {t.params} => {t.value}")
         if "model_save_path" in t.user_attrs:
             print(f"  📦 Model: {t.user_attrs['model_save_path']}")
 
@@ -130,5 +119,5 @@ if __name__ == "__main__":
     run_optuna_ablation(
         cfg_path="exec/config_search.yml",
         abl_path="exec/ablation.yml",
-        run_dir_manual="train_result/2025-11-11/run_001"
+        run_dir_manual="train_result/2025-11-11/run_001",
     )
