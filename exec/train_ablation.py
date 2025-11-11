@@ -4,7 +4,8 @@ import optuna
 import pandas as pd
 from pathlib import Path
 from sklearn.preprocessing import LabelEncoder
-from train_core import objective, cleanup_memory
+from train_optuna import objective
+from train_core import cleanup_memory
 
 
 # === Helper functions ===
