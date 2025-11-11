@@ -84,7 +84,11 @@ def objective(
     search_space,
 ):
     """Optuna探索用の目的関数（1 trial = 1学習）"""
-    yaml_cfg = suggest_from_yml(trial, search_space)
+    if search_space is None:
+        # Ablationの場合：Optuna探索はせず固定パラメータを使用
+        yaml_cfg = trial.params
+    else:
+        yaml_cfg = suggest_from_yml(trial, search_space)
 
     config = {
         # =========================
