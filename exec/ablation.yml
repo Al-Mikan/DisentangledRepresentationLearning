@@ -1,0 +1,3 @@
+train_mode: [mae,flow,gated]                # mae / flow / gated
+adversarial: ["off", "gan", "kl"]   # True: GAN方式 / False: 通常正則化
+flow_preprocessing: ["normal", "centered"]     # normal / centered

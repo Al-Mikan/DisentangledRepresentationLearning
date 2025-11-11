@@ -283,10 +283,9 @@ def evaluate_and_visualize(embeddings, labels, sources, le_act, name, out_dir, m
 # =============================
 # メイン処理
 # =============================
-def main():
+def main(DATE_TAG):
     setup_environment()
 
-    DATE_TAG = "2025-11-04/run_002"  # ← train_resultの日付と合わせる（自動検出フォールバックあり）
     DATATYPE = "animalkingdom"
     ABLATION_CSV = Path(f"./train_result/{DATE_TAG}/ablations/ablation_results.csv")
 
@@ -413,4 +412,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    DATA_TAG = "2025-11-04/run_002"  # ← train_resultの日付と合わせる（自動検出フォールバックあり）
+    main(DATA_TAG)

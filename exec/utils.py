@@ -157,26 +157,3 @@ def cleanup_memory() -> None:
         except Exception:
             pass
     gc.collect()
-
-
-def _compute_embeddings(models, loader: DataLoader, config) -> Tuple[np.ndarray, np.ndarray]:
-    """ローダ全体をエンコードし (特徴行列, ラベルベクトル) を返す。"""
-    xs: List[np.ndarray] = []
-    ys: List[np.ndarray] = []
-    for m in models.values():
-        m.eval()
-    with torch.no_grad():
-        for batch in loader:
-            a_vec, a, *_ = _encode_batch(models, batch, config)
-            xs.append(a_vec.detach().cpu().numpy())
-            ys.append(a.detach().cpu().numpy())
-    return np.concatenate(xs, axis=0), np.concatenate(ys, axis=0)
-
-def _compute_clustering_metrics(models, loader, config):
-    """埋め込みにKMeansクラスタリングを行い ARI/NMI/平均 を返す。"""
-    X, y = _compute_embeddings(models, loader, config)
-    n_clusters = len(np.unique(y))
-    pred = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(X)
-    ari = adjusted_rand_score(y, pred)
-    nmi = normalized_mutual_info_score(y, pred)
-    return ari, nmi, (ari + nmi) / 2
