@@ -37,7 +37,6 @@ def merge_config_in_memory(yaml_config: dict, json_config: dict) -> dict:
             else:
                 result[k] = v
         return result
-
     return recursive_merge(yaml_config, json_config)
 
 
@@ -45,8 +44,8 @@ def merge_config_in_memory(yaml_config: dict, json_config: dict) -> dict:
 
 def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
     """
-    ablation.ymlに書かれた複数パターンを、
-    Optunaの固定Trialでまとめて実行する。
+    ablation.ymlに書かれた複数パターンをOptunaの固定Trialとして実行。
+    各key/valueごとにフォルダを分けてモデル保存。
     """
     # === 設定ファイル読み込み ===
     base_yaml = load_yaml(cfg_path)
@@ -68,47 +67,64 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
     le_sp = LabelEncoder().fit(full_df["species"])
 
     # === Study作成 ===
-    study_name = "ablation_fixed_trials"
-    study = optuna.create_study(direction="maximize", study_name=study_name)
+    study = optuna.create_study(direction="maximize", study_name="ablation_fixed_trials")
 
-    # === AblationパターンをOptunaにキュー追加 ===
-    enqueue_count = 0
+    # === ablationパターン列挙 ===
+    ablation_specs = []
     for key, values in ab_yaml.items():
         if not isinstance(values, list):
             continue
         for v in values:
-            trial_params = merged_config.copy()
-            trial_params[key] = v
-            study.enqueue_trial(trial_params)
-            enqueue_count += 1
-            print(f"🧩 Enqueued: {key} = {v}")
+            ablation_specs.append((key, v))
 
-    print(f"\n🚀 Enqueued {enqueue_count} fixed ablation trials")
-
-    # === Ablation出力ディレクトリ ===
-    ablation_dir = run_dir / "ablation_optuna"
-    ablation_dir.mkdir(parents=True, exist_ok=True)
+    n_trials = len(ablation_specs)
+    print(f"\n🚀 Enqueued {n_trials} ablation trials")
 
     # === 一括実行 ===
-    study.optimize(
-        lambda trial: objective(
+    def ablation_objective(trial: optuna.trial.Trial):
+        idx = trial.number
+        if idx >= n_trials:
+            raise optuna.TrialPruned()
+
+        key, value = ablation_specs[idx]
+        print(f"\n🔎 [Trial {idx}] Running ablation: {key} = {value}")
+
+        # === 各Trial専用のsearch_space生成 ===
+        local_config = dict(merged_config)
+        local_config[key] = value
+
+        # === 出力ディレクトリ作成（key/valueごと） ===
+        ablation_dir = run_dir / "ablation" / f"{key}" / str(value)
+        ablation_dir.mkdir(parents=True, exist_ok=True)
+
+        # === objective実行 ===
+        result = objective(
             trial,
             full_df,
             le_act,
             le_sp,
             results_root=ablation_dir,
-            search_space=None, 
-        ),
-        n_trials=enqueue_count,
-        gc_after_trial=True,
-    )
+            search_space=local_config,
+        )
+
+        # === モデルパスの整形 ===
+        model_path = trial.user_attrs.get("model_save_path", None)
+        if model_path:
+            renamed = ablation_dir / f"{key}_{value}_best.pth"
+            Path(model_path).rename(renamed)
+            trial.set_user_attr("model_save_path", str(renamed))
+
+        print(f"✅ Completed ablation {key}={value} → score={result:.4f}")
+        return result
+
+    # === 実行 ===
+    study.optimize(ablation_objective, n_trials=n_trials, gc_after_trial=True)
 
     # === 結果出力 ===
     print("\n🎯 All Ablation Trials Completed!\n")
     for t in study.get_trials():
-        print(f"[Trial #{t.number}] {t.params} => {t.value}")
-        if "model_save_path" in t.user_attrs:
-            print(f"  📦 Model: {t.user_attrs['model_save_path']}")
+        print(f"📦 {t.user_attrs.get('model_save_path', '(no model)')}")
+        print(f"  ➤ Score: {t.value:.4f}\n")
 
     cleanup_memory()
 
