@@ -4,9 +4,11 @@ from typing import Any, Dict
 import torch
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
-from datetime import datetime
 import wandb
 from train_core import train_model, build_datasets_and_loaders, _build_inference_models, _compute_clustering_metrics, cleanup_memory
+from sklearn.model_selection import StratifiedKFold
+import numpy as np
+
 
 # ===============================
 # YAML読み込みとOptunaヘルパー関数
@@ -96,7 +98,7 @@ def objective(
         # =========================
         "train_mode": yaml_cfg.get("train_mode", "gated"),  # 学習対象モード（mae / flow / gated）
         "loss_type": yaml_cfg.get("loss_type", "triplet"),  # 損失関数の種類（triplet, supcon, cosineなど）
-        "adversarial_mode": yaml_cfg.get("adversarial", "off"),  # 敵対的学習の有効化（off / gan / kl）
+        "adversarial": yaml_cfg.get("adversarial", "gan"),  # 敵対的学習の有効化（off / gan / kl）
         "flow_preprocessing": yaml_cfg.get("flow_preprocessing", "centered"),  # Optical Flow特徴の前処理（normal / centered）
 
         # =========================
@@ -105,7 +107,7 @@ def objective(
         "lr_enc": float(yaml_cfg.get("lr_enc", 1e-4)),   # エンコーダ側の学習率
         "lr_disc": float(yaml_cfg.get("lr_disc", 1e-4)), # 識別器(Discriminator)の学習率（GAN・KL使用時のみ）
         "weight_decay": float(yaml_cfg.get("weight_decay", 1e-5)),  # L2正則化（Weight Decay）の強さ
-        "lambda_adv": float(yaml_cfg.get("lambda_adv", 0.1)),  # 敵対的損失の重み（adversarial_mode有効時）
+        "lambda_adv": float(yaml_cfg.get("lambda_adv", 0.1)),  # 敵対的損失の重み（adversarial有効時）
 
         # =========================
         # 損失関数パラメータ
@@ -134,56 +136,77 @@ def objective(
     }
 
     trial.set_user_attr("train_mode", config["train_mode"])
-    trial.set_user_attr("adversarial_mode", config["adversarial_mode"])
+    trial.set_user_attr("adversarial", config["adversarial"])
     trial.set_user_attr("loss_type", config["loss_type"])
 
-    run_name = (
-        f"trial_{trial.number}_"
-        f"{config['train_mode']}_{config['loss_type']}_"
-        f"adv{config['adversarial_mode']}_"
-        f"{config['flow_preprocessing']}"
-    )
+    # ===============================
+    # Cross-validation の設定
+    # ===============================
+    seed = 42
+    kfold = StratifiedKFold(n_splits=3, shuffle=True, random_state=seed)
+    val_scores = []
 
-    wandb.init(project=config["project_name"], config=config, name=run_name, reinit=True, mode="disabled")
+    # ===============================
+    # 各foldで学習・評価
+    # ===============================
+    for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(full_df, full_df["species"])):
+        print(f"\n🧩 Fold {fold_idx + 1}/3 開始")
 
-    train_df, val_df = train_test_split(full_df, test_size=0.2, random_state=42, stratify=full_df["action"])
-    train_loader, val_loader, fusion_model = build_datasets_and_loaders(config, train_df, val_df, le_act, le_sp)
+        train_df = full_df.iloc[train_idx].reset_index(drop=True)
+        val_df = full_df.iloc[val_idx].reset_index(drop=True)
 
-    best_val_loss = train_model(config, train_loader, val_loader, le_sp, trial, study_name="optuna", fusion=fusion_model, results_root=results_root)
+        # wandbをfoldごとに閉じるため、fold単位で名前付け
+        run_name = (
+            f"trial{trial.number}_fold{fold_idx+1}_"
+            f"{config['train_mode']}_{config['loss_type']}_"
+            f"adv{config['adversarial']}_{config['flow_preprocessing']}"
+        )
+        wandb.init(project=config["project_name"], config=config, name=run_name, reinit=True, mode="disabled")
 
-    model_path = trial.user_attrs.get("model_save_path")
-    ari_val = nmi_val = combined_val = -1.0
-    ari_train = nmi_train = combined_train = -1.0
-
-    if model_path:
         try:
-            
+            # === データローダ構築・学習 ===
+            train_loader, val_loader, fusion_model = build_datasets_and_loaders(config, train_df, val_df, le_act, le_sp)
+            _ = train_model(config, train_loader, val_loader, le_sp, trial, study_name="optuna", fusion=fusion_model, results_root=results_root)
+
+            # === モデルロードと評価 ===
+            model_path = trial.user_attrs.get("model_save_path")
+            if not model_path:
+                print("⚠️ model_save_path not found for this fold.")
+                continue
+
             inf_models = _build_inference_models(config, D=config["fused_dim"], fusion=fusion_model)
             state = torch.load(model_path, map_location="cuda" if torch.cuda.is_available() else "cpu")
             inf_models.load_state_dict(state, strict=False)
+
             ari_val, nmi_val, combined_val = _compute_clustering_metrics(inf_models, val_loader, config)
             ari_train, nmi_train, combined_train = _compute_clustering_metrics(inf_models, train_loader, config)
+
+            def normalize_score(x):
+                return (x + 1) / 2
+            
+            val_norm = normalize_score(combined_val)
+            train_norm = normalize_score(combined_train)
+            score = val_norm - 0.3 * abs(val_norm - train_norm)
+
+            print(f"✅ Fold {fold_idx+1} | train={combined_train:.3f}, val={combined_val:.3f}, score={score:.3f}")
+            val_scores.append(score)
+
         except Exception as e:
-            print(f"⚠️ Failed to compute clustering metrics: {e}")
-    
+            print(f"⚠️ Fold {fold_idx+1} failed: {e}")
+
+        wandb.finish()
+        cleanup_memory()
+
     # ===============================
-    # train-val差による過学習ペナルティ
+    # Fold平均を最終スコアとして返す
     # ===============================
-    if combined_train > 0 and combined_val > 0:
-        score = combined_val - 0.3 * abs(combined_val - combined_train)
-    else:
-        score = combined_val  # fallback
+    if len(val_scores) == 0:
+        print("⚠️ 全fold失敗 → score=0を返す")
+        return 0.0
 
-    # ログと保存
-    trial.set_user_attr("metric_combined_val", combined_val)
-    trial.set_user_attr("metric_combined_train", combined_train)
-    trial.set_user_attr("score_final", score)
-    trial.set_user_attr("metric_ari", float(ari_val))
-    trial.set_user_attr("metric_nmi", float(nmi_val))
+    mean_score = float(np.mean(val_scores))
+    print(f"\n📊 Cross-Validation Mean Score = {mean_score:.4f}")
+    trial.set_user_attr("cv_scores", val_scores)
+    trial.set_user_attr("cv_mean", mean_score)
 
-    wandb.finish()
-    cleanup_memory()
-
-    print(f"[Trial {trial.number}] train={combined_train:.3f}, val={combined_val:.3f}, score={score:.3f}")
-
-    return score
+    return mean_score

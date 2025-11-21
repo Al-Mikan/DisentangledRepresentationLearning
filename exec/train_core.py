@@ -130,7 +130,7 @@ def train_step(
         m.train()
 
     a_vec, a, s, alpha = _encode_batch(models, batch, config)
-    adv_mode = config.get("adversarial_mode", "off")
+    adv_mode = config.get("adversarial", "off")
     adv_enabled = adv_mode != "off"
 
     if adv_enabled:
@@ -240,7 +240,7 @@ def train_model(
     models = nn.ModuleDict()
     optimizers: Dict[str, torch.optim.Optimizer] = {}
     wd = float(config.get("weight_decay", 1e-5))
-    adv_mode = config.get("adversarial_mode", "off")
+    adv_mode = config.get("adversarial", "off")
     adv_enabled = adv_mode != "off"
 
     # -------------------------------
@@ -300,7 +300,7 @@ def train_model(
         run_name = run_name_override
     else:
         run_name = (
-            f"trial_{trial.number}_{config['train_mode']}_{config['loss_type']}_adv{config['adversarial_mode']}"
+            f"trial_{trial.number}_{config['train_mode']}_{config['loss_type']}_adv{config['adversarial']}"
             + (f"_{config['flow_preprocessing']}" if config.get("train_mode") in ["flow", "gated"] else "")
         )
 
@@ -352,7 +352,7 @@ def build_basename_from_config(cfg: Dict[str, Any]) -> str:
     例:
     loss_type: triplet
     train_mode: gated
-    adversarial_mode: gan
+    adversarial: gan
     flow_preprocessing: centered
 
     → "triplet_gated_adv_gan_centered"
@@ -366,7 +366,7 @@ def build_basename_from_config(cfg: Dict[str, Any]) -> str:
     parts.append(str(cfg.get("train_mode", "unknown")))
 
     # === 敵対的学習モード ===
-    adv_mode = cfg.get("adversarial_mode") or cfg.get("adversarial", "off")
+    adv_mode = cfg.get("adversarial") or "off"
     parts.append(f"adv_{adv_mode}")
 
     # === Flow前処理 ===
@@ -451,7 +451,7 @@ def train_with_config(
 
 def _build_inference_models(config: Dict[str, Any], D: int, fusion: Optional[nn.Module] = None) -> nn.ModuleDict:
     models = nn.ModuleDict()
-    if config.get("adversarial_mode", "off") != "off":
+    if config.get("adversarial", "off") != "off":
         models["action_encoder"] = ActionMLPNet(D, 256, 256).to(DEVICE)
     else:
         models["net"] = SimpleMLPNet(D, 256, 256).to(DEVICE)

@@ -59,6 +59,20 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
     # === baselineとconfig_search.ymlをマージ ===
     merged_config = merge_config_in_memory(base_yaml, baseline_params)
 
+    # --- 🔧 adversarialキーを明示的に上書き（baseline優先） ---
+    adv = None
+    if "adversarial" in baseline_params:
+        adv = baseline_params["adversarial"]
+    elif "adversarial" in baseline_params.get("user_attrs", {}):
+        adv = baseline_params["user_attrs"]["adversarial"]
+
+    # baselineが文字列型なら、それを優先してYAML上書き
+    if isinstance(adv, str):
+        merged_config["adversarial"] = adv
+
+
+    
+
     # === データ読み込み ===
     datatype = merged_config.get("datatype", "animalkingdom")
     full_csv_path = f"./label/{datatype}/train/labels.csv"
@@ -78,6 +92,7 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
             ablation_specs.append((key, v))
 
     n_trials = len(ablation_specs)
+    print(ablation_specs)
     print(f"\n🚀 Enqueued {n_trials} ablation trials")
 
     # === 一括実行 ===
@@ -88,6 +103,26 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
 
         key, value = ablation_specs[idx]
         print(f"\n🔎 [Trial {idx}] Running ablation: {key} = {value}")
+
+            # === 各Trial専用のsearch_space生成 ===
+        local_config = dict(merged_config)
+        local_config[key] = value
+
+        # --- 🔒 リスト型パラメータを固定化（adversarialなどが壊れないように） ---
+        for k, v in list(local_config.items()):
+            if isinstance(v, list):
+                if k in baseline_params and isinstance(baseline_params[k], (str, float, int)):
+                    local_config[k] = baseline_params[k]
+                else:
+                    local_config[k] = v[0]
+
+        # === 🧩 実際に使用する設定を可視化 ===
+        print("🧩 Effective training parameters:")
+        for k, v in sorted(local_config.items()):
+            if k in ["train_mode", "adversarial", "loss_type", "flow_preprocessing", 
+                    "triplet_margin", "lambda_adv", "lr_enc", "lr_disc"]:
+                print(f"   {k}: {v}")
+        print("")
 
         # === 各Trial専用のsearch_space生成 ===
         local_config = dict(merged_config)
@@ -111,8 +146,15 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
         model_path = trial.user_attrs.get("model_save_path", None)
         if model_path:
             renamed = ablation_dir / f"{key}_{value}_best.pth"
-            Path(model_path).rename(renamed)
-            trial.set_user_attr("model_save_path", str(renamed))
+
+            dst_path = Path(renamed)
+
+            # 既に存在する場合は削除してからリネーム
+            if dst_path.exists():
+                dst_path.unlink()
+            
+            Path(model_path).rename(dst_path)
+            trial.set_user_attr("model_save_path", str(dst_path))
 
         print(f"✅ Completed ablation {key}={value} → score={result:.4f}")
         return result
