@@ -165,8 +165,8 @@ if __name__ == "__main__":
     mode = 'sliding_list'   # ← ★ ここだけ変更すればOK（既存に干渉しない）
 
     csv_list = [
-        "./label/animalkingdom_split/train/labels.csv",
-        "./label/animalkingdom_split/test/labels_test.csv",
+        "./label/animalkingdom/train/labels.csv",
+        "./label/animalkingdom/test/labels_test.csv",
     ]
 
     for csv in csv_list:
