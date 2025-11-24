@@ -92,6 +92,9 @@ def objective(
     else:
         yaml_cfg = suggest_from_yml(trial, search_space)
 
+    use_cv = bool(yaml_cfg.get("use_cross_validation", True))
+    n_splits = int(yaml_cfg.get("cv_splits", 3))
+
     config = {
         # =========================
         # 学習設定・モード関連
@@ -139,74 +142,102 @@ def objective(
     trial.set_user_attr("adversarial", config["adversarial"])
     trial.set_user_attr("loss_type", config["loss_type"])
 
-    # ===============================
-    # Cross-validation の設定
-    # ===============================
     seed = 42
-    kfold = StratifiedKFold(n_splits=3, shuffle=True, random_state=seed)
     val_scores = []
 
-    # ===============================
-    # 各foldで学習・評価
-    # ===============================
-    for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(full_df, full_df["species"])):
-        print(f"\n🧩 Fold {fold_idx + 1}/3 開始")
+    # ======================================
+    # Cross-Validation ありの場合
+    # ======================================
+    if use_cv:
+        print(f"\n🔄 Cross-Validation ENABLED ({n_splits}-fold)")
+        kfold = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
-        train_df = full_df.iloc[train_idx].reset_index(drop=True)
-        val_df = full_df.iloc[val_idx].reset_index(drop=True)
+        for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(full_df, full_df["species"])):
+            print(f"\n🧩 Fold {fold_idx + 1}/{n_splits} 開始")
 
-        # wandbをfoldごとに閉じるため、fold単位で名前付け
-        run_name = (
-            f"trial{trial.number}_fold{fold_idx+1}_"
-            f"{config['train_mode']}_{config['loss_type']}_"
-            f"adv{config['adversarial']}_{config['flow_preprocessing']}"
+            train_df = full_df.iloc[train_idx].reset_index(drop=True)
+            val_df = full_df.iloc[val_idx].reset_index(drop=True)
+
+            score = _run_one_fold(
+                trial, config, train_df, val_df, le_act, le_sp, results_root, fold_idx
+            )
+            if score is not None:
+                val_scores.append(score)
+
+    # ======================================
+    # Cross-Validation OFF（単一 split）
+    # ======================================
+    else:
+        print("\n🚫 Cross-Validation DISABLED → 1回だけ train/val split")
+
+        train_df, val_df = train_test_split(
+            full_df, test_size=0.2, random_state=seed, shuffle=True
         )
-        wandb.init(project=config["project_name"], config=config, name=run_name, reinit=True, mode="disabled")
 
-        try:
-            # === データローダ構築・学習 ===
-            train_loader, val_loader, fusion_model = build_datasets_and_loaders(config, train_df, val_df, le_act, le_sp)
-            _ = train_model(config, train_loader, val_loader, le_sp, trial, study_name="optuna", fusion=fusion_model, results_root=results_root)
-
-            # === モデルロードと評価 ===
-            model_path = trial.user_attrs.get("model_save_path")
-            if not model_path:
-                print("⚠️ model_save_path not found for this fold.")
-                continue
-
-            inf_models = _build_inference_models(config, D=config["fused_dim"], fusion=fusion_model)
-            state = torch.load(model_path, map_location="cuda" if torch.cuda.is_available() else "cpu")
-            inf_models.load_state_dict(state, strict=False)
-
-            ari_val, nmi_val, combined_val = _compute_clustering_metrics(inf_models, val_loader, config)
-            ari_train, nmi_train, combined_train = _compute_clustering_metrics(inf_models, train_loader, config)
-
-            def normalize_score(x):
-                return (x + 1) / 2
-            
-            val_norm = normalize_score(combined_val)
-            train_norm = normalize_score(combined_train)
-            score = val_norm - 0.3 * abs(val_norm - train_norm)
-
-            print(f"✅ Fold {fold_idx+1} | train={combined_train:.3f}, val={combined_val:.3f}, score={score:.3f}")
+        score = _run_one_fold(
+            trial, config, train_df, val_df, le_act, le_sp, results_root, 0
+        )
+        if score is not None:
             val_scores.append(score)
 
-        except Exception as e:
-            print(f"⚠️ Fold {fold_idx+1} failed: {e}")
-
-        wandb.finish()
-        cleanup_memory()
-
-    # ===============================
-    # Fold平均を最終スコアとして返す
-    # ===============================
+    # ======================================
+    # 最終スコアの計算
+    # ======================================
     if len(val_scores) == 0:
         print("⚠️ 全fold失敗 → score=0を返す")
         return 0.0
 
     mean_score = float(np.mean(val_scores))
-    print(f"\n📊 Cross-Validation Mean Score = {mean_score:.4f}")
+    print(f"\n📊 Final Score = {mean_score:.4f}")
+
     trial.set_user_attr("cv_scores", val_scores)
     trial.set_user_attr("cv_mean", mean_score)
 
     return mean_score
+
+
+
+def _run_one_fold(
+    trial,
+    config,
+    train_df,
+    val_df,
+    le_act,
+    le_sp,
+    results_root,
+    fold
+):
+    run_name = f"trial{trial.number}_fold{fold+1}_{config['train_mode']}_{config['loss_type']}"
+
+    wandb.init(project=config["project_name"], config=config, name=run_name, reinit=True, mode="disabled")
+
+    try:
+        train_loader, val_loader, fusion_model = build_datasets_and_loaders(config, train_df, val_df, le_act, le_sp)
+        _ = train_model(config, train_loader, val_loader, le_sp, trial, study_name="optuna", fusion=fusion_model, results_root=results_root)
+
+        model_path = trial.user_attrs.get("model_save_path")
+        if not model_path:
+            return None
+
+        inf_models = _build_inference_models(config, D=config["fused_dim"], fusion=fusion_model)
+        state = torch.load(model_path, map_location="cuda" if torch.cuda.is_available() else "cpu")
+        inf_models.load_state_dict(state, strict=False)
+
+        ari_val, nmi_val, combined_val = _compute_clustering_metrics(inf_models, val_loader, config)
+        ari_train, nmi_train, combined_train = _compute_clustering_metrics(inf_models, train_loader, config)
+
+        val_norm = (combined_val + 1) / 2
+        train_norm = (combined_train + 1) / 2
+        score = val_norm - 0.3 * abs(val_norm - train_norm)
+
+        print(f"  Fold{fold+1} | train={combined_train:.3f}, val={combined_val:.3f}, score={score:.3f}")
+
+        return score
+
+    except Exception as e:
+        print(f"⚠️ Fold {fold+1} failed: {e}")
+        return None
+
+    finally:
+        wandb.finish()
+        cleanup_memory()

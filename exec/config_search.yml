@@ -5,12 +5,11 @@ experiment_name: triplet_vs_gan
 output_root: ./train_result
 datatype: animalkingdom
 
-
 # === モード設定 ===
-train_mode: gated                # mae / flow / gated
-loss_type: triplet               # supcon / cosine / triplet
-adversarial: [gan, kl]   # True: GAN方式 / False: 通常正則化
-flow_preprocessing: [normal,centered]     # normal / centered
+train_mode: gated # mae / flow / gated
+loss_type: triplet # supcon / cosine / triplet
+adversarial: [gan, kl] # True: GAN方式 / False: 通常正則化
+flow_preprocessing: [normal, centered] # normal / centered
 
 # === モデル設定 ===
 fused_dim: 512
@@ -18,7 +17,7 @@ feature_dim: 256
 
 # === ハイパーパラメータ探索 ===
 triplet_margin: [0.05, 0.3]
-temperature: 0.07                # 固定
+temperature: 0.07 # 固定
 lambda_adv: [0.01, 0.3]
 lr_enc: [1e-5, 5e-4, log]
 lr_disc: [1e-5, 5e-4, log]
@@ -31,3 +30,5 @@ num_workers: 4
 pin_memory: true
 device: cuda
 seed: 42
+use_cross_validation: true
+cv_splits: 3

@@ -10,7 +10,7 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import LabelEncoder
-from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
 # =============================
@@ -56,10 +56,12 @@ def load_data_for_eval(config: Dict) -> Tuple[pd.DataFrame, LabelEncoder, Dict]:
     if config.get('vmae_json_test') and Path(config['vmae_json_test']).exists():
         features["vmae"].update(json.loads(Path(config['vmae_json_test']).read_text()))
 
+    # Load X3D / flow features
     for _, row in tqdm(full_df.iterrows(), total=len(full_df), desc="Loading .npy features"):
         path_str = row["video_path"]
         vid = Path(path_str).stem
         source_dir = "train" if row["source"] == "train" else "test"
+
         for key in ["flow", "flow_centered"]:
             base_dir = config['x3d_dir_centered'] if key == 'flow_centered' else config['x3d_dir']
             npy_path = base_dir / source_dir / vid / f"{vid}.npy"
@@ -89,14 +91,14 @@ def build_and_load_model(params: Dict):
     fused_dim = params.get('fused_dim', 512)
     D = fused_dim if params['train_mode'] == 'gated' else (2048 if params['train_mode'] == 'flow' else 768)
 
-    # Fusion (for gated)
+    # Fusion
     if params['train_mode'] == 'gated':
         models['fusion'] = GatedFusion(2048, 768, fused_dim).to(DEVICE).eval()
         fusion_state = {k.replace('fusion.', ''): v for k, v in state_dict.items() if k.startswith('fusion.')}
         if fusion_state:
             models['fusion'].load_state_dict(fusion_state)
 
-    # Encoder推定
+    # Encoder
     possible_prefixes = ['action_encoder.', 'net.']
     chosen_prefix = next((p for p in possible_prefixes if any(k.startswith(p) for k in state_dict.keys())), '')
     enc_state = {k.replace(chosen_prefix, ''): v for k, v in state_dict.items() if k.startswith(chosen_prefix)}
@@ -107,6 +109,7 @@ def build_and_load_model(params: Dict):
 
     keys = list(enc_state.keys())
     has_mlp = any('.0.' in k or 'act_embed.0' in k for k in keys)
+
     if has_mlp:
         encoder = ActionMLPNet(D, 256, 256).to(DEVICE).eval()
     else:
@@ -132,6 +135,7 @@ def extract_embeddings(df, features, models, params):
 
     for _, row in tqdm(df.iterrows(), total=len(df), desc=f"Extracting ({mode})"):
         path = row["video_path"]
+
         if mode == 'gated':
             flow_key = 'flow_centered' if params.get('flow_preprocessing') == 'centered' else 'flow'
             if path not in features[flow_key] or path not in features['vmae']:
@@ -144,6 +148,7 @@ def extract_embeddings(df, features, models, params):
             if path not in features[fkey]:
                 continue
             x = torch.tensor(features[fkey][path]).unsqueeze(0).float().to(DEVICE)
+
         a_vec = encoder(x)
         emb_list.append(nn.functional.normalize(a_vec, dim=-1).squeeze(0).cpu())
         labels.append(row["act_id"])
@@ -151,6 +156,7 @@ def extract_embeddings(df, features, models, params):
 
     if not emb_list:
         return None, None, None
+
     return torch.stack(emb_list), np.array(labels), np.array(sources)
 
 
@@ -159,43 +165,33 @@ def extract_embeddings(df, features, models, params):
 # =============================
 def evaluate_and_visualize(embeddings, labels, sources, le_act, name, out_dir):
     out_dir.mkdir(parents=True, exist_ok=True)
-    if embeddings is None or labels is None or sources is None:
+
+    if embeddings is None:
         print(f"⚠️ No embeddings extracted for {name}")
         return np.nan, np.nan
 
     test_mask = (sources == 'test')
     X_test, y_test = embeddings[test_mask], labels[test_mask]
+
     if len(y_test) == 0:
-        print(f"⚠️ No test samples for {name}")
         return np.nan, np.nan
 
     n_clusters = len(np.unique(y_test))
     X_np = X_test.numpy()
 
     try:
-        clustering_model = AgglomerativeClustering(n_clusters=n_clusters, metric='cosine', linkage='average')
-        pred = clustering_model.fit_predict(X_np)
+        clustering = AgglomerativeClustering(
+            n_clusters=n_clusters, metric='cosine', linkage='average'
+        )
+        pred = clustering.fit_predict(X_np)
     except TypeError:
-        clustering_model = AgglomerativeClustering(n_clusters=n_clusters, affinity='cosine', linkage='average')
-        pred = clustering_model.fit_predict(X_np)
+        clustering = AgglomerativeClustering(
+            n_clusters=n_clusters, affinity='cosine', linkage='average'
+        )
+        pred = clustering.fit_predict(X_np)
 
     ari = adjusted_rand_score(y_test, pred)
     nmi = normalized_mutual_info_score(y_test, pred)
-    print(f"📊 {name}: ARI={ari:.4f}, NMI={nmi:.4f}")
-
-    try:
-        proj = TSNE(n_components=2, init='random', random_state=42, metric='cosine').fit_transform(X_np)
-        fig, ax = plt.subplots(figsize=(10, 8))
-        for cid in np.unique(y_test):
-            cname = le_act.classes_[cid]
-            ax.scatter(proj[y_test == cid, 0], proj[y_test == cid, 1], s=20, label=cname)
-        ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=7)
-        plt.title(f"{name} | NMI={nmi:.3f} ARI={ari:.3f}")
-        plt.tight_layout()
-        plt.savefig(out_dir / f"{name}_test_tsne.png", dpi=150)
-        plt.close()
-    except Exception as e:
-        print(f"⚠️ t-SNE failed ({e})")
 
     return ari, nmi
 
@@ -211,7 +207,7 @@ def main(run_dir):
     if not ablation_root.exists():
         raise FileNotFoundError(f"❌ Ablation directory not found: {ablation_root}")
 
-    # === baseline_config.json 読み込み ===
+    # Load baseline config
     baseline_path = run_dir / "baseline_config.json"
     if baseline_path.exists():
         with open(baseline_path, "r", encoding="utf-8") as f:
@@ -220,7 +216,7 @@ def main(run_dir):
         base_params.update(baseline_cfg.get("user_attrs", {}))
         print(f"✅ Loaded baseline parameters from {baseline_path}")
     else:
-        print(f"⚠️ baseline_config.json not found under {run_dir}, using default settings.")
+        print("⚠ baseline_config.json not found, using default params.")
         base_params = {
             "train_mode": "gated",
             "adversarial": "off",
@@ -247,23 +243,20 @@ def main(run_dir):
 
     model_paths = list(ablation_root.glob("**/*.pth"))
     if not model_paths:
-        print(f"⚠️ No model files found under {ablation_root}")
+        print("⚠️ No model files found!")
         return
 
     results = []
+
     for model_path in tqdm(model_paths, desc="Evaluating models"):
         rel_parts = model_path.relative_to(ablation_root).parts
-        if len(rel_parts) >= 2:
-            ab_key = rel_parts[0]
-            ab_value = rel_parts[1]
-        else:
-            ab_key, ab_value = "unknown", "unknown"
+        ab_key = rel_parts[0] if len(rel_parts) > 0 else "unknown"
+        ab_value = rel_parts[1] if len(rel_parts) > 1 else "unknown"
 
-        # === baseline設定をコピーしてパラメータ上書き ===
         params = base_params.copy()
         params["model_path"] = model_path
 
-        # ablation内容で上書き
+        # 変更対象パラメータを上書き
         if ab_key == "train_mode":
             params["train_mode"] = ab_value
         elif ab_key == "adversarial":
@@ -271,7 +264,8 @@ def main(run_dir):
         elif ab_key == "flow_preprocessing":
             params["flow_preprocessing"] = ab_value
 
-        print(f"\n🧩 Evaluating {ab_key}={ab_value}")
+        print(f"\n🧩 Evaluating {ab_key} = {ab_value}")
+
         models = build_and_load_model(params)
         if models is None:
             continue
@@ -284,16 +278,29 @@ def main(run_dir):
             "ablation_value": ab_value,
             "name": model_path.stem,
             "train_mode": params.get("train_mode"),
-            "adversarial": params.get("adversarial", base_params.get("adversarial", "off")),
-            "flow_preprocessing": params.get("flow_preprocessing", base_params.get("flow_preprocessing", "normal")),
+            "adversarial": params.get("adversarial"),
+            "flow_preprocessing": params.get("flow_preprocessing"),
             "test_ari": ari,
             "test_nmi": nmi,
-            "model_path": str(model_path),
+            "model_path": str(model_path)
         })
 
-    eval_csv = eval_root / "eval_summary.csv"
-    pd.DataFrame(results).to_csv(eval_csv, index=False)
-    print(f"\n✅ Saved evaluation summary to {eval_csv}")
+    # ============================================
+    # Markdown 出力のみ
+    # ============================================
+    df = pd.DataFrame(results)
+    df_sorted = df.sort_values(by="test_nmi", ascending=False)
+
+    eval_root.mkdir(parents=True, exist_ok=True)
+    md_path = eval_root / "eval_summary.md"
+
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("# Evaluation Summary (Markdown)\n\n")
+        f.write(f"Generated from `{run_dir}`\n\n")
+        f.write(df_sorted.to_markdown(index=False))
+        f.write("\n")
+
+    print(f"📄 Markdown summary saved to {md_path}")
 
 
 if __name__ == "__main__":
