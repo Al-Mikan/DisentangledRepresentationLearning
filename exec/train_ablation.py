@@ -192,5 +192,5 @@ if __name__ == "__main__":
     run_optuna_ablation(
         cfg_path="exec/config_search.yml",
         abl_path="exec/ablation.yml",
-        run_dir_manual="train_result/2025-11-11/run_001",
+        run_dir_manual="train_result/2025-11-26/run_001",
     )

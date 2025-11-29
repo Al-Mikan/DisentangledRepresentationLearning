@@ -1,0 +1,7 @@
+name,train_mode,use_mlp,use_adversarial,flow_preprocessing,val_loss,val_metric_combined,test_ari,test_nmi,model_path
+baseline,gated,True,True,normal,0.1242809206247329,,0.5958706371653781,0.6371411952153677,train_result\2025-10-26\run_001\ablations\baseline\improved_gated_mlp_on_adv_on_normal_best.pth
+mlp_off,gated,True,True,normal,0.1147983521223068,,0.4318844782329187,0.5605542773339716,train_result\2025-10-26\run_001\ablations\use_mlp\gated_mlp_off_adv_on_best.pth
+adv_off,gated,True,True,normal,0.1222636729478836,,0.4137574705971039,0.5343017683453493,train_result\2025-10-26\run_001\ablations\use_adversarial\gated_mlp_on_adv_off_best.pth
+flow_preprocessing_alt,gated,True,True,centered,0.1235915899276733,,0.44609919155017125,0.5992187724903312,train_result\2025-10-26\run_001\ablations\flow_preprocessing_alt\improved_gated_mlp_on_adv_on_centered_best.pth
+mode_mae,mae,True,True,normal,0.1112593725323677,,0.10163998406778368,0.28618006503843096,train_result\2025-10-26\run_001\ablations\mode\mae_mlp_on_adv_on_best.pth
+mode_flow,flow,True,True,normal,0.1192023620009422,,0.3034327135899117,0.4842243424790506,train_result\2025-10-26\run_001\ablations\mode\flow_mlp_on_adv_on_best.pth

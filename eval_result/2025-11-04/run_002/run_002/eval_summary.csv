@@ -1,0 +1,4 @@
+name,train_mode,use_mlp,use_adversarial,flow_preprocessing,val_loss,val_metric_combined,test_ari,test_nmi,model_path
+baseline,mae,True,True,normal,0.1005738049745559,,0.06798962643937102,0.2175857255803957,train_result\2025-11-04\run_002\ablations\baseline\improved_mae_mlp_on_adv_on_best.pth
+adv_off,mae,True,True,normal,0.102298517525196,,0.21426610843212102,0.4244632129056232,train_result\2025-11-04\run_002\ablations\use_adversarial\mae_mlp_on_adv_off_best.pth
+mode_flow,flow,True,True,normal,0.1002608150243759,,0.4436249532629511,0.5366915480009213,train_result\2025-11-04\run_002\ablations\mode\flow_mlp_on_adv_on_best.pth

@@ -304,4 +304,4 @@ def main(run_dir):
 
 
 if __name__ == "__main__":
-    main("train_result/2025-11-11/run_001")
+    main("train_result/2025-11-21/run_001")

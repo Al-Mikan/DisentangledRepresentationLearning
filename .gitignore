@@ -56,7 +56,6 @@ env/
 /optuna_study.db
 /results_summary.txt
 /train_result
-/eval_result
 
 # Exec subfolder caches / externals
 /exec/__pycache__/
