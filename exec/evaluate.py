@@ -303,6 +303,7 @@ def main(run_dir):
     img_dir.mkdir(parents=True, exist_ok=True)
 
     DATATYPE = "wolf"
+
     config = {
         "train_csv": Path(f"./label/{DATATYPE}/train/labels.csv"),
         "test_csv": Path(f"./label/{DATATYPE}/test/labels_test.csv"),
