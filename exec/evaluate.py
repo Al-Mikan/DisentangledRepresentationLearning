@@ -1,7 +1,7 @@
 import os
 import json
 from pathlib import Path
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -13,6 +13,8 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 import umap
+from matplotlib.cm import get_cmap
+from matplotlib.colors import to_rgb
 
 # =============================
 # モデルのimport
@@ -28,11 +30,9 @@ from model import (
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"✅ Using device: {DEVICE}")
 
-
 def setup_environment():
     torch.set_grad_enabled(False)
     os.environ["OMP_NUM_THREADS"] = "2"
-
 
 # =============================
 # データ読み込み
@@ -71,7 +71,6 @@ def load_data_for_eval(config: Dict) -> Tuple[pd.DataFrame, LabelEncoder, Dict]:
                 features[key][path_str] = arr.squeeze(0) if arr.ndim > 1 else arr
 
     return full_df, le_act, features
-
 
 # =============================
 # モデル構築とロード
@@ -124,7 +123,6 @@ def build_and_load_model(params: Dict):
     models['encoder'] = encoder
     return models
 
-
 # =============================
 # 埋め込み抽出
 # =============================
@@ -160,12 +158,58 @@ def extract_embeddings(df, features, models, params):
 
     return torch.stack(emb_list), np.array(labels), np.array(sources)
 
+# =============================
+# 可視化ヘルパー（見やすい色 + ラベル名）
+# =============================
+def _build_distinct_colors(n: int):
+    """
+    tab20をベースに、黄〜黄緑の近似色を避けつつ循環。
+    多クラスでも破綻しにくいようにtab20 -> tab20b -> tab20cの順で拡張。
+    """
+    cmaps = [get_cmap("tab20"), get_cmap("tab20b"), get_cmap("tab20c")]
+    pool = []
+    for cm in cmaps:
+        pool.extend([cm(i) for i in range(cm.N)])
+    # 黄に近い色を除外（HSVでなく簡易にRGB判定：RとGが強くBが弱い）
+    def is_yellowish(c):
+        r, g, b = to_rgb(c)
+        return (r > 0.7 and g > 0.7 and b < 0.4)
+    filtered = [c for c in pool if not is_yellowish(c)]
+    if len(filtered) < n:
+        # それでも足りなければ元色で埋める
+        filtered = pool
+    # 必要数だけ取り出し、足りなければループ
+    out = [filtered[i % len(filtered)] for i in range(n)]
+    return out
+
+def _plot_embedding(X_2d: np.ndarray, y_ids: np.ndarray, le_act: LabelEncoder,
+                    title: str, save_path: Path):
+    label_names = le_act.inverse_transform(y_ids)
+    uniq = np.unique(label_names)
+    colors = _build_distinct_colors(len(uniq))
+    color_map = {lab: colors[i] for i, lab in enumerate(uniq)}
+
+    plt.figure(figsize=(8, 6))
+    for lab in uniq:
+        mask = (label_names == lab)
+        plt.scatter(
+            X_2d[mask, 0], X_2d[mask, 1],
+            s=14, alpha=0.9, color=color_map[lab], label=lab, edgecolors='none'
+        )
+    plt.title(title, fontsize=13)
+    plt.xticks([]); plt.yticks([])
+    # 凡例を右外に（多クラス対応）
+    plt.legend(bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=8, frameon=False)
+    plt.tight_layout()
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(save_path, dpi=220)
+    plt.close()
+    print(f"📌 Saved → {save_path}")
 
 # =============================
 # 評価 + 可視化
 # =============================
 def evaluate_and_visualize(embeddings, labels, sources, le_act, name, out_dir):
-    # --- 出力先サブディレクトリ作成 ---
     tsne_dir = out_dir / "tsne"
     umap_dir = out_dir / "umap"
     tsne_dir.mkdir(parents=True, exist_ok=True)
@@ -177,16 +221,13 @@ def evaluate_and_visualize(embeddings, labels, sources, le_act, name, out_dir):
 
     test_mask = (sources == 'test')
     X_test, y_test = embeddings[test_mask], labels[test_mask]
-
     if len(y_test) == 0:
         return np.nan, np.nan
 
-    n_clusters = len(np.unique(y_test))
     X_np = X_test.numpy()
+    n_clusters = len(np.unique(y_test))
 
-    # =============================
-    # クラスタリング（ARI, NMI）
-    # =============================
+    # ---- クラスタリング（ARI, NMI）
     try:
         clustering = AgglomerativeClustering(
             n_clusters=n_clusters, metric='cosine', linkage='average'
@@ -201,75 +242,32 @@ def evaluate_and_visualize(embeddings, labels, sources, le_act, name, out_dir):
     ari = adjusted_rand_score(y_test, pred)
     nmi = normalized_mutual_info_score(y_test, pred)
 
-    # =============================
-    # t-SNE 可視化
-    # =============================
+    # ---- t-SNE（ラベル名カラー）
     try:
         tsne = TSNE(
-            n_components=2,
-            init="pca",
-            learning_rate="auto",
-            perplexity=30,
+            n_components=2, init="pca",
+            learning_rate="auto", perplexity=30,
             random_state=42
         )
         X_tsne = tsne.fit_transform(X_np)
-
-        plt.figure(figsize=(6, 5))
-        scatter = plt.scatter(
-            X_tsne[:, 0], X_tsne[:, 1],
-            c=y_test,
-            s=12,
-            alpha=0.9
-        )
-        plt.colorbar(scatter, label="True Labels")
-        plt.title(f"t-SNE (True Labels)\n{name}", fontsize=12)
-        plt.tight_layout()
-
         tsne_path = tsne_dir / f"{name}_tsne_labels.png"
-        plt.savefig(tsne_path, dpi=200)
-        plt.close()
-
-        print(f"📌 Saved t-SNE → {tsne_path}")
-
+        _plot_embedding(X_tsne, y_test, le_act, f"t-SNE (True Labels) - {name}", tsne_path)
     except Exception as e:
         print(f"⚠️ t-SNE failed for {name}: {e}")
 
-    # =============================
-    # UMAP 可視化
-    # =============================
+    # ---- UMAP（ラベル名カラー）
     try:
         reducer = umap.UMAP(
-            n_neighbors=15,
-            min_dist=0.1,
-            n_components=2,
-            metric="cosine",
-            random_state=42
+            n_neighbors=15, min_dist=0.1, n_components=2,
+            metric="cosine", random_state=42
         )
-
         X_umap = reducer.fit_transform(X_np)
-
-        plt.figure(figsize=(6, 5))
-        scatter = plt.scatter(
-            X_umap[:, 0], X_umap[:, 1],
-            c=y_test,
-            s=12,
-            alpha=0.9,
-        )
-        plt.colorbar(scatter, label="True Labels")
-        plt.title(f"UMAP (True Labels)\n{name}", fontsize=12)
-        plt.tight_layout()
-
         umap_path = umap_dir / f"{name}_umap_labels.png"
-        plt.savefig(umap_path, dpi=200)
-        plt.close()
-
-        print(f"📌 Saved UMAP → {umap_path}")
-
+        _plot_embedding(X_umap, y_test, le_act, f"UMAP (True Labels) - {name}", umap_path)
     except Exception as e:
         print(f"⚠️ UMAP failed for {name}: {e}")
 
     return ari, nmi
-
 
 # =============================
 # メイン処理
@@ -376,7 +374,6 @@ def main(run_dir):
         f.write("\n")
 
     print(f"📄 Markdown summary saved to {md_path}")
-
 
 if __name__ == "__main__":
     main("train_result/2025-11-21/run_001")
