@@ -12,6 +12,7 @@ from sklearn.manifold import TSNE
 from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+import umap
 
 # =============================
 # モデルのimport
@@ -164,7 +165,11 @@ def extract_embeddings(df, features, models, params):
 # 評価 + 可視化
 # =============================
 def evaluate_and_visualize(embeddings, labels, sources, le_act, name, out_dir):
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # --- 出力先サブディレクトリ作成 ---
+    tsne_dir = out_dir / "tsne"
+    umap_dir = out_dir / "umap"
+    tsne_dir.mkdir(parents=True, exist_ok=True)
+    umap_dir.mkdir(parents=True, exist_ok=True)
 
     if embeddings is None:
         print(f"⚠️ No embeddings extracted for {name}")
@@ -179,6 +184,9 @@ def evaluate_and_visualize(embeddings, labels, sources, le_act, name, out_dir):
     n_clusters = len(np.unique(y_test))
     X_np = X_test.numpy()
 
+    # =============================
+    # クラスタリング（ARI, NMI）
+    # =============================
     try:
         clustering = AgglomerativeClustering(
             n_clusters=n_clusters, metric='cosine', linkage='average'
@@ -192,6 +200,73 @@ def evaluate_and_visualize(embeddings, labels, sources, le_act, name, out_dir):
 
     ari = adjusted_rand_score(y_test, pred)
     nmi = normalized_mutual_info_score(y_test, pred)
+
+    # =============================
+    # t-SNE 可視化
+    # =============================
+    try:
+        tsne = TSNE(
+            n_components=2,
+            init="pca",
+            learning_rate="auto",
+            perplexity=30,
+            random_state=42
+        )
+        X_tsne = tsne.fit_transform(X_np)
+
+        plt.figure(figsize=(6, 5))
+        scatter = plt.scatter(
+            X_tsne[:, 0], X_tsne[:, 1],
+            c=y_test,
+            s=12,
+            alpha=0.9
+        )
+        plt.colorbar(scatter, label="True Labels")
+        plt.title(f"t-SNE (True Labels)\n{name}", fontsize=12)
+        plt.tight_layout()
+
+        tsne_path = tsne_dir / f"{name}_tsne_labels.png"
+        plt.savefig(tsne_path, dpi=200)
+        plt.close()
+
+        print(f"📌 Saved t-SNE → {tsne_path}")
+
+    except Exception as e:
+        print(f"⚠️ t-SNE failed for {name}: {e}")
+
+    # =============================
+    # UMAP 可視化
+    # =============================
+    try:
+        reducer = umap.UMAP(
+            n_neighbors=15,
+            min_dist=0.1,
+            n_components=2,
+            metric="cosine",
+            random_state=42
+        )
+
+        X_umap = reducer.fit_transform(X_np)
+
+        plt.figure(figsize=(6, 5))
+        scatter = plt.scatter(
+            X_umap[:, 0], X_umap[:, 1],
+            c=y_test,
+            s=12,
+            alpha=0.9,
+        )
+        plt.colorbar(scatter, label="True Labels")
+        plt.title(f"UMAP (True Labels)\n{name}", fontsize=12)
+        plt.tight_layout()
+
+        umap_path = umap_dir / f"{name}_umap_labels.png"
+        plt.savefig(umap_path, dpi=200)
+        plt.close()
+
+        print(f"📌 Saved UMAP → {umap_path}")
+
+    except Exception as e:
+        print(f"⚠️ UMAP failed for {name}: {e}")
 
     return ari, nmi
 
