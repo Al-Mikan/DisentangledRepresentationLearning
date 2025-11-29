@@ -302,7 +302,7 @@ def main(run_dir):
     img_dir = eval_root / "images"
     img_dir.mkdir(parents=True, exist_ok=True)
 
-    DATATYPE = "animalkingdom"
+    DATATYPE = "wolf"
     config = {
         "train_csv": Path(f"./label/{DATATYPE}/train/labels.csv"),
         "test_csv": Path(f"./label/{DATATYPE}/test/labels_test.csv"),
@@ -376,4 +376,4 @@ def main(run_dir):
     print(f"📄 Markdown summary saved to {md_path}")
 
 if __name__ == "__main__":
-    main("train_result/2025-11-21/run_001")
+    main("train_result/2025-11-26/run_001")
