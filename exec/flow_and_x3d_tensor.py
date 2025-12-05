@@ -116,7 +116,7 @@ def extract_flow_to_x3d(
     out_dir_normal,
     out_dir_centered,
     clip_len=16,
-    stride=8,
+    stride=1,
     batch_size=2,
     clip_batch_size=2,
 ):
@@ -189,7 +189,6 @@ if __name__ == "__main__":
 
     csv_files = [
         "./label/animalkingdom/train/labels.csv",
-        "./label/animalkingdom/test/labels_test.csv",
     ]
 
     for csv in csv_files:
@@ -197,7 +196,7 @@ if __name__ == "__main__":
         df["video_path"] = df["video_path"].str.replace("\\", "/").str.strip()
 
         parts = os.path.normpath(csv).split(os.sep)
-        datatype = parts[parts.index("label") + 1]
+        datatype = "animalkingdom"
 
         out_normal = f"./x3d_vector/{datatype}"
         out_centered = f"./x3d_vector_centered/{datatype}"
