@@ -199,8 +199,8 @@ if __name__ == "__main__":
         parts = os.path.normpath(csv).split(os.sep)
         datatype = parts[parts.index("label") + 1]
 
-        out_normal = f"./x3d_output_normal/{datatype}"
-        out_centered = f"./x3d_output_centered/{datatype}"
+        out_normal = f"./x3d_vector/{datatype}"
+        out_centered = f"./x3d_vector_centered/{datatype}"
 
         os.makedirs(out_normal, exist_ok=True)
         os.makedirs(out_centered, exist_ok=True)
