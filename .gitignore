@@ -59,7 +59,6 @@ env/
 
 # Exec subfolder caches / externals
 /exec/__pycache__/
-/exec/RAFT/
 
 # Keep placeholder files if needed
 !.gitkeep
