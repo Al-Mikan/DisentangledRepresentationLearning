@@ -64,3 +64,4 @@ env/
 
 # Keep placeholder files if needed
 !.gitkeep
+/exec/RAFT/
