@@ -205,3 +205,10 @@ class X3D_MAE_Dataset(BaseDataset):
             row["action"],
             row["species"],
         )
+
+
+def set_seed(seed: int) -> None:
+    """乱数シードを固定する"""
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
