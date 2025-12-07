@@ -39,8 +39,10 @@ def setup_environment():
 # =============================
 def load_data_for_eval(config: Dict) -> Tuple[pd.DataFrame, LabelEncoder, Dict]:
     print("📂 Loading labels and features...")
-    train_df = pd.read_csv(config['train_csv'])
-    test_df = pd.read_csv(config['test_csv'])
+    # CSV は label/{datatype}/... を使う
+    data_dt = config.get('datatype', 'animalkingdom')
+    train_df = pd.read_csv(f"./label/{data_dt}/train/labels.csv")
+    test_df = pd.read_csv(f"./label/{data_dt}/test/labels_test.csv")
     train_df['source'] = 'train'
     test_df['source'] = 'test'
     full_df = pd.concat([train_df, test_df], ignore_index=True)
@@ -51,24 +53,33 @@ def load_data_for_eval(config: Dict) -> Tuple[pd.DataFrame, LabelEncoder, Dict]:
 
     features = {"flow": {}, "flow_centered": {}, "vmae": {}}
 
-    # VMAE features
-    if config['vmae_json'].exists():
-        features["vmae"].update(json.loads(config['vmae_json'].read_text()))
-    if config.get('vmae_json_test') and Path(config['vmae_json_test']).exists():
-        features["vmae"].update(json.loads(Path(config['vmae_json_test']).read_text()))
+    # VMAE / X3D features: per your rule, use vector/polar when datatype == 'polar',
+    # otherwise use vector/animalkingdom for VMAE and x3d_vector/animalkingdom for X3D.
+    vec_root_name = 'polar' if data_dt == 'polar' else 'animalkingdom'
+    vmae_root = Path(f"./vector/{vec_root_name}")
+    x3d_root = Path(f"./x3d_vector/{vec_root_name}")
+    x3d_root_centered = Path(f"./x3d_vector_centered/{vec_root_name}")
 
-    # Load X3D / flow features
+    # Load per-video .npy files
     for _, row in tqdm(full_df.iterrows(), total=len(full_df), desc="Loading .npy features"):
         path_str = row["video_path"]
         vid = Path(path_str).stem
-        source_dir = "train" if row["source"] == "train" else "test"
+        # VMAE: ./vector/<vec_root_name>/<video_name>/avg_pooling.npy
+        vmae_path = vmae_root / vid / "avg_pooling.npy"
+        if vmae_path.exists():
+            arr = np.load(vmae_path)
+            features['vmae'][path_str] = arr.squeeze(0) if arr.ndim > 1 else arr
 
-        for key in ["flow", "flow_centered"]:
-            base_dir = config['x3d_dir_centered'] if key == 'flow_centered' else config['x3d_dir']
-            npy_path = base_dir / source_dir / vid / f"{vid}.npy"
-            if npy_path.exists():
-                arr = np.load(npy_path)
-                features[key][path_str] = arr.squeeze(0) if arr.ndim > 1 else arr
+        # X3D / flow: ./x3d_vector/<vec_root_name>/<video_name>/<video_name>.npy
+        npy_path = x3d_root / vid / f"{vid}.npy"
+        if npy_path.exists():
+            arr = np.load(npy_path)
+            features['flow'][path_str] = arr.squeeze(0) if arr.ndim > 1 else arr
+
+        npy_path_c = x3d_root_centered / vid / f"{vid}.npy"
+        if npy_path_c.exists():
+            arr = np.load(npy_path_c)
+            features['flow_centered'][path_str] = arr.squeeze(0) if arr.ndim > 1 else arr
 
     return full_df, le_act, features
 
@@ -307,10 +318,7 @@ def main(run_dir):
     config = {
         "train_csv": Path(f"./label/{DATATYPE}/train/labels.csv"),
         "test_csv": Path(f"./label/{DATATYPE}/test/labels_test.csv"),
-        "vmae_json": Path(f"./vector/{DATATYPE}/train/vectors_sliding_base.json"),
-        "vmae_json_test": Path(f"./vector/{DATATYPE}/test/vectors_sliding_base.json"),
-        "x3d_dir": Path(f"./x3d_output/{DATATYPE}"),
-        "x3d_dir_centered": Path(f"./x3d_output_centered/{DATATYPE}"),
+        "datatype": DATATYPE,
     }
 
     full_df, le_act, features = load_data_for_eval(config)

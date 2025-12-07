@@ -67,11 +67,17 @@ def build_datasets_and_loaders(
     le_act: LabelEncoder,
     le_sp: LabelEncoder,
 ) -> Tuple[DataLoader, DataLoader, Optional[nn.Module]]:
-    x3d_dir_path = f"./x3d_vector/{config['train_datatype']}"
-    x3d_centered_dir_path = f"./x3d_vector_centered/{config['train_datatype']}"
+    # CSV読込で使う datatype（例: 'animalkingdom_split' など）
+    data_dt = config.get('datatype', 'animalkingdom')
+
+    # ベクトル / X3D のルートは 'polar' のときだけ polar を使い、それ以外は animalkingdom を参照する
+    vec_root_name = 'polar' if data_dt == 'polar' else 'animalkingdom'
+
+    x3d_dir_path = f"./x3d_vector/{vec_root_name}"
+    x3d_centered_dir_path = f"./x3d_vector_centered/{vec_root_name}"
     current_x3d_path = x3d_centered_dir_path if config.get("flow_preprocessing", "normal") == "centered" else x3d_dir_path
 
-    vector_root = f"./vector/{config['train_datatype']}"
+    vector_root = f"./vector/{vec_root_name}"
     
     fusion_model: Optional[nn.Module] = None
     if config["train_mode"] == "mae":

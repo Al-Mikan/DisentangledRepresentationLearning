@@ -54,7 +54,7 @@ def main() -> None:
     # Load CSV & encoders
     # --------------------------------------------
     print("📂 Loading dataset & encoders...")
-    train_csv = search_space["train_csv"]
+    train_csv = f"./label/{search_space.get('datatype','animalkingdom')}/train/labels.csv"
     full_df = pd.read_csv(train_csv)
 
     le_act = LabelEncoder().fit(full_df["action"])
