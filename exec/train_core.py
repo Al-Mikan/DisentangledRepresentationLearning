@@ -94,8 +94,8 @@ def build_datasets_and_loaders(
             pooling=config["pooling"],
         )
     elif config["train_mode"] == "flow":
-        train_dataset = X3D_Dataset(train_df, le_act, le_sp, current_x3d_path)
-        val_dataset = X3D_Dataset(val_df, le_act, le_sp, current_x3d_path)
+        train_dataset = X3D_Dataset(train_df, le_act, le_sp, current_x3d_path, pooling=config["pooling"])
+        val_dataset = X3D_Dataset(val_df, le_act, le_sp, current_x3d_path, pooling=config["pooling"])
     elif config["train_mode"] == "gated":
         train_dataset = X3D_MAE_Dataset(
             train_df,

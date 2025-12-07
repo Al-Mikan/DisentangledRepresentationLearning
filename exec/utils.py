@@ -97,28 +97,45 @@ class MAE_Dataset(BaseDataset):
 # x3d_dir/<video_name>/<video_name>.npy
 # =============================================
 class X3D_Dataset(BaseDataset):
-    def __init__(self, dataframe, le_act, le_sp, x3d_dir):
+    def __init__(self, dataframe, le_act, le_sp, x3d_dir, pooling=True):
         super().__init__(dataframe, le_act, le_sp)
         self.x3d_dir = x3d_dir
+        self.pooling = pooling
 
         valid_rows = []
         for _, row in self.df.iterrows():
             vid = os.path.splitext(os.path.basename(row["video_path"]))[0]
-            p = os.path.join(x3d_dir, vid, f"{vid}.npy")
-            if os.path.exists(p):
-                valid_rows.append(row)
+            base = os.path.join(x3d_dir, vid)
+            if pooling:
+                p = os.path.join(base, "avg_pooling.npy")
+                if os.path.exists(p):
+                    valid_rows.append(row)
+            else:
+                sliding_dir = os.path.join(base, "sliding_list")
+                if glob.glob(os.path.join(sliding_dir, "*.npy")):
+                    valid_rows.append(row)
 
         self.df = pd.DataFrame(valid_rows).reset_index(drop=True)
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
         vid = os.path.splitext(os.path.basename(row["video_path"]))[0]
-        npy_path = os.path.join(self.x3d_dir, vid, f"{vid}.npy")
+        base = os.path.join(self.x3d_dir, vid)
 
-        x3d_vec = np.load(npy_path).squeeze(0)  # (D,)
+        if self.pooling:
+            npy_path = os.path.join(base, "avg_pooling.npy")
+            x3d_vec = np.load(npy_path)  # (D,)
+            return (
+                torch.tensor(x3d_vec, dtype=torch.float32),
+                row["action"],
+                row["species"],
+            )
 
+        sliding_dir = os.path.join(base, "sliding_list")
+        files = sorted(glob.glob(os.path.join(sliding_dir, "*.npy")))
+        x3d_mat = np.stack([np.load(f) for f in files])  # (T, D)
         return (
-            torch.tensor(x3d_vec, dtype=torch.float32),
+            torch.tensor(x3d_mat, dtype=torch.float32),
             row["action"],
             row["species"],
         )
@@ -145,9 +162,15 @@ class X3D_MAE_Dataset(BaseDataset):
             vid = os.path.splitext(os.path.basename(row["video_path"]))[0]
 
             # Motion
-            x3d_path = os.path.join(x3d_dir, vid, f"{vid}.npy")
-            if not os.path.exists(x3d_path):
-                continue
+            x3d_base = os.path.join(x3d_dir, vid)
+            if pooling:
+                x3d_path = os.path.join(x3d_base, "avg_pooling.npy")
+                if not os.path.exists(x3d_path):
+                    continue
+            else:
+                x3d_sliding = os.path.join(x3d_base, "sliding_list")
+                if len(glob.glob(os.path.join(x3d_sliding, "*.npy"))) == 0:
+                    continue
 
             # Appearance
             base_dir = os.path.join(vector_root, vid)
@@ -169,20 +192,19 @@ class X3D_MAE_Dataset(BaseDataset):
         row = self.df.iloc[idx]
         vid = os.path.splitext(os.path.basename(row["video_path"]))[0]
 
-        # ======================
-        # Motion (X3D single vector)
-        # ======================
-        x3d_path = os.path.join(self.x3d_dir, vid, f"{vid}.npy")
-        x3d_vec = np.load(x3d_path).squeeze(0)  # (D,)
+        # Motion (X3D)
+        x3d_base = os.path.join(self.x3d_dir, vid)
+        if self.pooling:
+            x3d_vec = np.load(os.path.join(x3d_base, "avg_pooling.npy"))  # (D,)
+        else:
+            x3d_files = sorted(glob.glob(os.path.join(x3d_base, "sliding_list", "*.npy")))
+            x3d_vec = np.stack([np.load(f) for f in x3d_files])  # (T, D)
 
-        # ======================
         # Appearance (VideoMAE)
-        # ======================
         base_dir = os.path.join(self.vector_root, vid)
 
         if self.pooling:
-            mae_path = os.path.join(base_dir, "avg_pooling.npy")
-            mae_vec = np.load(mae_path)    # (D,)
+            mae_vec = np.load(os.path.join(base_dir, "avg_pooling.npy"))    # (D,)
             return (
                 torch.tensor(x3d_vec, dtype=torch.float32),
                 torch.tensor(mae_vec, dtype=torch.float32),
@@ -190,14 +212,16 @@ class X3D_MAE_Dataset(BaseDataset):
                 row["species"],
             )
 
-        # sliding_list
-        sliding_dir = os.path.join(base_dir, "sliding_list")
-        files = sorted(glob.glob(os.path.join(sliding_dir, "*.npy")))
-        mae_vecs = [np.load(f) for f in files]
-        mae_mat = np.stack(mae_vecs)      # (T, D)
+        mae_files = sorted(glob.glob(os.path.join(base_dir, "sliding_list", "*.npy")))
+        mae_mat = np.stack([np.load(f) for f in mae_files])      # (T, D)
 
-        # X3D を T に repeat → (T, D)
-        x3d_mat = np.tile(x3d_vec, (mae_mat.shape[0], 1))
+        # スライディング長が一致しない場合は短い方に合わせる
+        T = min(x3d_vec.shape[0], mae_mat.shape[0]) if x3d_vec.ndim == 2 else mae_mat.shape[0]
+        if x3d_vec.ndim == 1:
+            x3d_mat = np.tile(x3d_vec, (T, 1))
+        else:
+            x3d_mat = x3d_vec[:T]
+            mae_mat = mae_mat[:T]
 
         return (
             torch.tensor(x3d_mat, dtype=torch.float32),
