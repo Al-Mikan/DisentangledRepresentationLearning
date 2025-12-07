@@ -46,8 +46,8 @@ env/
 /label/
 /losses/
 /models/
-/x3d_output/
-/x3d_output_centered/
+/x3d_vector/
+/x3d_vector_centered/
 /results/
 /wandb/
 /alpha_logs/

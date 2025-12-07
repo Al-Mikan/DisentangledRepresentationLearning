@@ -67,11 +67,11 @@ def build_datasets_and_loaders(
     le_act: LabelEncoder,
     le_sp: LabelEncoder,
 ) -> Tuple[DataLoader, DataLoader, Optional[nn.Module]]:
-    x3d_dir_path = f"./x3d_output/{config['datatype']}/train"
-    x3d_centered_dir_path = f"./x3d_output_centered/{config['datatype']}/train"
+    x3d_dir_path = f"./x3d_vector/{config['train_datatype']}"
+    x3d_centered_dir_path = f"./x3d_vector_centered/{config['train_datatype']}"
     current_x3d_path = x3d_centered_dir_path if config.get("flow_preprocessing", "normal") == "centered" else x3d_dir_path
 
-    vector_root = f"./vector/{config['datatype']}"
+    vector_root = f"./vector/{config['train_datatype']}"
     
     fusion_model: Optional[nn.Module] = None
     if config["train_mode"] == "mae":

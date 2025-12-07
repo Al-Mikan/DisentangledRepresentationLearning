@@ -5,54 +5,61 @@
 ## トレーニング・評価
 
 - train.py
-  - 目的: flow/x3d・VideoMAE・ゲート融合の各特徴から行動表現を学習。Triplet/Cosine/SupConに対応。Optunaで探索、W&Bでロギング。敵対的正則化で種情報の抑制も可。
-  - 入力: `label/<datatype>/train/labels.csv`、`x3d_output/`（または`x3d_output_centered/`）、`vector/<datatype>/train/vectors_sliding_base.json`
-  - 出力: `models/<datatype>/<study_name>/<run_name>_best.pth`（ベストのみ）、`optuna_study.db`、`alpha_logs/`（gated時にαを保存）
+
+  - 目的: flow/x3d・VideoMAE・ゲート融合の各特徴から行動表現を学習。Triplet/Cosine/SupCon に対応。Optuna で探索、W&B でロギング。敵対的正則化で種情報の抑制も可。
+  - 入力: `label/<datatype>/train/labels.csv`、`x3d_vector/`（または`x3d_vector_centered/`）、`vector/<datatype>/*`（各動画ごとのフォルダに `avg_pooling.npy` / `sliding_list/*.npy` を配置）
+  - 出力: `models/<datatype>/<study_name>/<run_name>_best.pth`（ベストのみ）、`optuna_study.db`、`alpha_logs/`（gated 時に α を保存）
   - 実行例: `python .\exec\train.py`
 
 - evaluate.py
-  - 目的: OptunaのStudyから上位トライアルを自動復元し、テストデータでARI/NMIを評価。t-SNE/UMAPの可視化も保存。
-  - 入出力: `optuna_study.db`、`label/<datatype>/(train|test)/*.csv`、`x3d_output(_centered)/`、`vector/.../vectors_sliding_base.json`
+
+  - 目的: Optuna の Study から上位トライアルを自動復元し、テストデータで ARI/NMI を評価。t-SNE/UMAP の可視化も保存。
+  - 入出力: `optuna_study.db`、`label/<datatype>/(train|test)/*.csv`、`x3d_vector(_centered)/`、`vector/<datatype>/*`（各動画フォルダ）
   - 出力: `results/<STUDY_NAME>_summary.csv`、`results/<STUDY_NAME>/*_{tsne|umap}.png`
 
 - visualize.py（任意）
-  - 目的: 任意のチェックポイントを数本だけ読み、t-SNEの図を素早く作成する軽量スクリプト。
-  - 備考: evaluate.pyがあれば必須ではありません。必要ならα（ゲート係数）の可視化コードを追記して使用可能。
+  - 目的: 任意のチェックポイントを数本だけ読み、t-SNE の図を素早く作成する軽量スクリプト。
+  - 備考: evaluate.py があれば必須ではありません。必要なら α（ゲート係数）の可視化コードを追記して使用可能。
 
 ## 特徴抽出・前処理
 
 - feature_extractor.py
-  - 目的: 動画からフレーム特徴（例: VideoMAE）を抽出し、JSONに保存。
-  - 出力: `vector/<datatype>/train/vectors_sliding_base.json` 等
+
+  - 目的: 動画からフレーム特徴（例: VideoMAE）を抽出し、JSON に保存。
+  - 出力: 各動画フォルダに `avg_pooling.npy` または `sliding_list/*.npy` を保存
   - 例: `python .\exec\feature_extractor.py --mode adaptive3d`
 
 - optical_flow.py / flow_and_x3d_tensor.py
-  - 目的: 光学フローやX3D由来のテンソル出力を作る補助スクリプト。
-  - 出力: `x3d_output/<datatype>/.../*.npy`、`x3d_output_centered/<datatype>/.../*.npy`
+  - 目的: 光学フローや X3D 由来のテンソル出力を作る補助スクリプト。
+  - 出力: `x3d_vector/<datatype>/<video_name>/*.npy`、`x3d_vector_centered/<datatype>/<video_name>/*.npy`
 
 ## モデル・損失・ユーティリティ
 
 - model.py
-  - 埋め込み器: SimpleLinear/MLP、ActionLinear/MLP（敵対学習用）、SpeciesDiscriminator（敵対側）、GatedFusion（flow×vmae融合）。
-  - 安定化: 埋め込みはL2正規化、GatedFusionにはLayerNorm/Dropoutを導入済み。`forward`は`(fused, alpha)`を返します。
+
+  - 埋め込み器: SimpleLinear/MLP、ActionLinear/MLP（敵対学習用）、SpeciesDiscriminator（敵対側）、GatedFusion（flow×vmae 融合）。
+  - 安定化: 埋め込みは L2 正規化、GatedFusion には LayerNorm/Dropout を導入済み。`forward`は`(fused, alpha)`を返します。
 
 - triplet_losses.py
-  - Triplet関連の損失や補助実装（必要に応じて使用）。
+
+  - Triplet 関連の損失や補助実装（必要に応じて使用）。
 
 - utils.py
-  - データセット（MAE/Flow/融合）やユーティリティ関数を提供。train/evaluateから使用されます。
+
+  - データセット（MAE/Flow/融合）やユーティリティ関数を提供。train/evaluate から使用されます。
 
 - RAFT/
   - RAFT（光学フロー）実装。`optical_flow.py`等の下支え。
 
-## 補足: 保存ポリシーとαログ
+## 補足: 保存ポリシーと α ログ
 
 - モデル保存（train.py）
-  - 各トライアルで検証損失が改善した時のみ上書き保存。終了後にStudy全体から上位だけを残すクリーンアップを実施します。
-  - 保存は`state_dict`（ModuleDict）。非敵対は`net`、敵対は`action_encoder`/`discriminator`、gatedは`fusion`も含みます。
+
+  - 各トライアルで検証損失が改善した時のみ上書き保存。終了後に Study 全体から上位だけを残すクリーンアップを実施します。
+  - 保存は`state_dict`（ModuleDict）。非敵対は`net`、敵対は`action_encoder`/`discriminator`、gated は`fusion`も含みます。
 
 - α（ゲート係数）の保存
-  - gatedモード時、各エポックの全バッチ分のαを結合し `alpha_logs/alpha_trial{trial}_epoch{epoch}_*.npy` に保存します。
+  - gated モード時、各エポックの全バッチ分の α を結合し `alpha_logs/alpha_trial{trial}_epoch{epoch}_*.npy` に保存します。
 
 ## 実行ヒント（Windows PowerShell）
 
@@ -64,11 +71,13 @@
 train.py には、Discord Webhook 経由で進捗を通知する軽量機能を追加しています（標準ライブラリのみ使用・デフォルト無効）。
 
 - 有効化方法
+
   - 環境変数 `DISCORD_WEBHOOK_URL` に Webhook URL を設定すると有効化されます。
   - 各トライアルの開始/終了も通知したい場合は、`DISCORD_NOTIFY_TRIALS=1` を設定します（未設定なら Study 開始/終了とクリーンアップのみ通知）。
   - 例（PowerShell）: `$env:DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."; $env:DISCORD_NOTIFY_TRIALS="1"; python .\exec\train.py`
 
 - 送信タイミングと内容
+
   - Study 開始/終了（loss_type・study 名、ベストスコア・ハイパラ）
   - トライアル開始/終了（任意・trial 番号、val_loss、保存先）
   - クリーンアップ完了（保持/削除数とサマリーのパス）

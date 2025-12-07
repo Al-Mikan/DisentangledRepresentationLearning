@@ -94,7 +94,6 @@ def objective(
 
     use_cv = bool(yaml_cfg.get("use_cross_validation", True))
     n_splits = int(yaml_cfg.get("cv_splits", 3))
-    pooling = bool(yaml_cfg.get("pooling", True))
 
     config = {
         # =========================
@@ -104,7 +103,7 @@ def objective(
         "loss_type": yaml_cfg.get("loss_type", "triplet"),  # 損失関数の種類（triplet, supcon, cosineなど）
         "adversarial": yaml_cfg.get("adversarial", "gan"),  # 敵対的学習の有効化（off / gan / kl）
         "flow_preprocessing": yaml_cfg.get("flow_preprocessing", "centered"),  # Optical Flow特徴の前処理（normal / centered）
-
+        "pooling":  bool(yaml_cfg.get("pooling", True)),  # VideoMAE特徴のプーリング使用有無
         # =========================
         # 最適化・学習率関連
         # =========================
@@ -128,9 +127,9 @@ def objective(
         # =========================
         # データセット・モデル構造
         # =========================
-        "datatype": yaml_cfg.get("datatype", "animalkingdom"),           # 使用するデータセットの種類
-        "train_csv": yaml_cfg.get("train_csv", "./label/animalkingdom/train/labels.csv"),
-        "test_csv": yaml_cfg.get("test_csv", "./label/animalkingdom/test/labels_test.csv"),
+        "train_datatype": yaml_cfg.get("train_datatype","animalkingdom"),
+        "test_datatype": yaml_cfg.get("test_datatype","animalkingdom"),
+
         "fused_dim": int(yaml_cfg.get("fused_dim", 512)),   # GatedFusionで統合後の特徴ベクトル次元数
         "feature_dim": int(yaml_cfg.get("feature_dim", 256)), # 各モーダルの出力特徴次元数
 
