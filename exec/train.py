@@ -38,14 +38,6 @@ def main() -> None:
     storage_obj = InMemoryStorage() if InMemoryStorage is not None else None
 
     # === データ読み込み ===
-    print("📂 Loading initial data...")
-    datatype = "animalkingdom"
-    full_df = pd.read_csv(f"./label/{datatype}/train/labels.csv")
-    le_act = LabelEncoder().fit(full_df["action"])
-    le_sp = LabelEncoder().fit(full_df["species"])
-    print("✅ Data loaded.")
-
-    # === 設定読み込み ===
     yml_path = str(Path(__file__).with_name("config_search.yml"))
     search_space = None
     if Path(yml_path).exists():
@@ -54,9 +46,21 @@ def main() -> None:
         except Exception as e:
             print(f"⚠️ Failed to load yml search space: {e}")
 
-    seed = int((search_space or {}).get("seed", 42))
+    seed = int(search_space.get("seed", 42))
     set_seed(seed)
-    N_TRIALS_LOCAL = int((search_space or {}).get("n_trials", N_TRIALS_PER_STUDY))
+    N_TRIALS_LOCAL = int(search_space.get("n_trials", N_TRIALS_PER_STUDY))
+
+    # --------------------------------------------
+    # Load CSV & encoders
+    # --------------------------------------------
+    print("📂 Loading dataset & encoders...")
+    train_csv = search_space["train_csv"]
+    full_df = pd.read_csv(train_csv)
+
+    le_act = LabelEncoder().fit(full_df["action"])
+    le_sp = LabelEncoder().fit(full_df["species"])
+    print("✅ CSV loaded & encoders created.")
+
 
     # === ディレクトリ構築 ===
     date_dir = datetime.now().strftime("%Y-%m-%d")
@@ -172,7 +176,7 @@ def main() -> None:
         "datetime": datetime.now().isoformat(timespec="seconds"),
         "device": str(DEVICE),
         "seed": seed,
-        "datatype": datatype,
+        "datatype": search_space.get("datatype", "unknown"),
         "n_trials": N_TRIALS_LOCAL,
         "best_trial_number": best_trial.number,
         "best_value": best_trial.value,

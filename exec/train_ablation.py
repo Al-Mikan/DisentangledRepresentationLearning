@@ -76,9 +76,9 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
         merged_config["adversarial"] = adv
 
     # === データ読み込み ===
-    datatype = merged_config.get("datatype", "animalkingdom")
-    full_csv_path = f"./label/{datatype}/train/labels.csv"
-    full_df = pd.read_csv(full_csv_path)
+    # config_search.yml 由来の train_csv を優先して使用
+    train_csv = merged_config.get("train_csv", "./label/animalkingdom/train/labels.csv")
+    full_df = pd.read_csv(train_csv)
     le_act = LabelEncoder().fit(full_df["action"])
     le_sp = LabelEncoder().fit(full_df["species"])
 

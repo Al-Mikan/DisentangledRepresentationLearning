@@ -4,12 +4,15 @@ project_name: animalkingdom
 experiment_name: triplet_vs_gan
 output_root: ./train_result
 datatype: animalkingdom
+train_csv: ./label/animalkingdom/train/labels.csv
+test_csv: ./label/animalkingdom/test/labels_test.csv
 
 # === モード設定 ===
 train_mode: gated # mae / flow / gated
 loss_type: triplet # supcon / cosine / triplet
 adversarial: [gan, kl, off] # True: GAN方式 / False: 通常正則化
 flow_preprocessing: [normal, centered] # normal / centered
+pooling: False
 
 # === モデル設定 ===
 fused_dim: 512

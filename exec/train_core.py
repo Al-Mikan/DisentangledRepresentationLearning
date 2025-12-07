@@ -13,7 +13,8 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import KMeans
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
-from utils import FlowNpyDataset, X3DVideoMAEDataset, MAEDataset
+from utils import set_seed
+from utils import MAE_Dataset,X3D_Dataset, X3D_MAE_Dataset
 from model import (
     SimpleLinearNet, SimpleMLPNet, ActionLinearNet, ActionMLPNet,
     SpeciesDiscriminator, GatedFusion
@@ -66,21 +67,45 @@ def build_datasets_and_loaders(
     le_act: LabelEncoder,
     le_sp: LabelEncoder,
 ) -> Tuple[DataLoader, DataLoader, Optional[nn.Module]]:
-    vmae_json_path = f"./vector/{config['datatype']}/train/vectors_sliding_base.json"
     x3d_dir_path = f"./x3d_output/{config['datatype']}/train"
     x3d_centered_dir_path = f"./x3d_output_centered/{config['datatype']}/train"
     current_x3d_path = x3d_centered_dir_path if config.get("flow_preprocessing", "normal") == "centered" else x3d_dir_path
 
+    vector_root = f"./vector/{config['datatype']}"
+    
     fusion_model: Optional[nn.Module] = None
     if config["train_mode"] == "mae":
-        train_dataset = MAEDataset(train_df, vmae_json_path, le_act, le_sp)
-        val_dataset = MAEDataset(val_df, vmae_json_path, le_act, le_sp)
+        train_dataset = MAE_Dataset(
+            train_df,
+            le_act, le_sp,
+            vector_root=vector_root,
+            pooling=config["pooling"],
+        )
+        val_dataset = MAE_Dataset(
+            val_df,
+            le_act, le_sp,
+            vector_root=vector_root,
+            pooling=config["pooling"],
+        )
     elif config["train_mode"] == "flow":
-        train_dataset = FlowNpyDataset(train_df, current_x3d_path, le_act, le_sp)
-        val_dataset = FlowNpyDataset(val_df, current_x3d_path, le_act, le_sp)
+        train_dataset = X3D_Dataset(train_df, le_act, le_sp, current_x3d_path)
+        val_dataset = X3D_Dataset(val_df, le_act, le_sp, current_x3d_path)
     elif config["train_mode"] == "gated":
-        train_dataset = X3DVideoMAEDataset(train_df, current_x3d_path, vmae_json_path, le_act, le_sp)
-        val_dataset = X3DVideoMAEDataset(val_df, current_x3d_path, vmae_json_path, le_act, le_sp)
+        train_dataset = X3D_MAE_Dataset(
+            train_df,
+            le_act, le_sp,
+            x3d_dir=current_x3d_path,
+            vector_root=vector_root,
+            pooling=config["pooling"],
+        )
+        val_dataset = X3D_MAE_Dataset(
+            val_df,
+            le_act, le_sp,
+            x3d_dir=current_x3d_path,
+            vector_root=vector_root,
+            pooling=config["pooling"],
+        )
+
         fusion_model = GatedFusion(2048, 768, int(config["fused_dim"]))
         fusion_model = fusion_model.to(DEVICE)
     else:
@@ -103,6 +128,16 @@ def _encode_batch(models: nn.ModuleDict, batch, config: Dict[str, Any]):
         vmae = vmae.to(DEVICE)
         a = a.to(DEVICE, dtype=torch.long)
         s = s.to(DEVICE, dtype=torch.long)
+        
+        # Flatten if not pooled (Batch, Frames, Dim) -> (Batch*Frames, Dim)
+        if x3d.dim() == 3:
+            b, t, d = x3d.shape
+            x3d = x3d.reshape(b * t, d)
+            vmae = vmae.reshape(b * t, -1)
+            # Expand labels: (Batch,) -> (Batch, Frames) -> (Batch*Frames,)
+            a = a.unsqueeze(1).expand(b, t).reshape(-1)
+            s = s.unsqueeze(1).expand(b, t).reshape(-1)
+
         fused, alpha = models["fusion"](x3d, vmae)
         x = fused
     else:
@@ -110,6 +145,14 @@ def _encode_batch(models: nn.ModuleDict, batch, config: Dict[str, Any]):
         x = x.to(DEVICE)
         a = a.to(DEVICE, dtype=torch.long)
         s = s.to(DEVICE, dtype=torch.long)
+        
+        # Flatten if not pooled
+        if x.dim() == 3:
+            b, t, d = x.shape
+            x = x.reshape(b * t, d)
+            a = a.unsqueeze(1).expand(b, t).reshape(-1)
+            s = s.unsqueeze(1).expand(b, t).reshape(-1)
+
         alpha = None
     encoder = models["action_encoder"] if "action_encoder" in models else models["net"]
     a_vec = encoder(x)
@@ -299,7 +342,7 @@ def train_model(
         run_name = run_name_override
     else:
         run_name = (
-            f"trial_{trial.number}_{config['train_mode']}_{config['loss_type']}_adv{config['adversarial']}"
+            f"trial_{trial.number}_{config['train_mode']}_{config['loss_type']}_adv{config['adversarial']}_pool{config.get('pooling', True)}"
             + (f"_{config['flow_preprocessing']}" if config.get("train_mode") in ["flow", "gated"] else "")
         )
 

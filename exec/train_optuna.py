@@ -94,6 +94,7 @@ def objective(
 
     use_cv = bool(yaml_cfg.get("use_cross_validation", True))
     n_splits = int(yaml_cfg.get("cv_splits", 3))
+    pooling = bool(yaml_cfg.get("pooling", True))
 
     config = {
         # =========================
@@ -127,7 +128,9 @@ def objective(
         # =========================
         # データセット・モデル構造
         # =========================
-        "datatype": "animalkingdom",           # 使用するデータセットの種類（固定：Animal Kingdom）
+        "datatype": yaml_cfg.get("datatype", "animalkingdom"),           # 使用するデータセットの種類
+        "train_csv": yaml_cfg.get("train_csv", "./label/animalkingdom/train/labels.csv"),
+        "test_csv": yaml_cfg.get("test_csv", "./label/animalkingdom/test/labels_test.csv"),
         "fused_dim": int(yaml_cfg.get("fused_dim", 512)),   # GatedFusionで統合後の特徴ベクトル次元数
         "feature_dim": int(yaml_cfg.get("feature_dim", 256)), # 各モーダルの出力特徴次元数
 
