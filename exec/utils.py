@@ -205,3 +205,9 @@ class X3D_MAE_Dataset(BaseDataset):
             torch.tensor(row["action"], dtype=torch.long),
             torch.tensor(row["species"], dtype=torch.long),
         )
+
+def set_seed(seed: int) -> None:
+    """乱数シード固定"""
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
