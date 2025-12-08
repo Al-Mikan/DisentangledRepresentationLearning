@@ -363,5 +363,14 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main(Path(sys.argv[1]))
     else:
-        dirs = sorted(Path("train_result").glob("**/run_*"), reverse=True)
+        # train_result 内から一番新しい run_* ディレクトリを選ぶ
+        dirs = [
+            d for d in Path("train_result").glob("**/run_*")
+            if d.is_dir()
+        ]
+        dirs = sorted(dirs, reverse=True)
+
+        if len(dirs) == 0:
+            raise RuntimeError("No run_* directory found under train_result/")
+
         main(dirs[0])
