@@ -54,8 +54,11 @@ def main() -> None:
     # Load CSV & encoders
     # --------------------------------------------
     print("📂 Loading dataset & encoders...")
-    train_csv = f"./label/{search_space.get('datatype','animalkingdom')}/train/labels.csv"
+    datatype = search_space.get("datatype", "animalkingdom")
+    train_csv = f"./label/{datatype}/train/labels.csv"
+    
     full_df = pd.read_csv(train_csv)
+    full_df["video_path"] = full_df["video_path"].str.replace("\\", "/").str.strip()
 
     le_act = LabelEncoder().fit(full_df["action"])
     le_sp = LabelEncoder().fit(full_df["species"])

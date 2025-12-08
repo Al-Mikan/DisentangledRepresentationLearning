@@ -1,388 +1,367 @@
+# eval.py
 import os
+import sys
 import json
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional, List
+
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+
 import torch
 import torch.nn as nn
+
 import matplotlib.pyplot as plt
+from matplotlib.cm import get_cmap
+
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 import umap
-from matplotlib.cm import get_cmap
-from matplotlib.colors import to_rgb
 
-# =============================
-# モデルのimport
-# =============================
+
+# =================================
+# モデルのimport（学習時と同じ）
+# =================================
 from model import (
     GatedFusion, ActionLinearNet, ActionMLPNet,
     SimpleLinearNet, SimpleMLPNet
 )
 
-# =============================
-# 共通設定
-# =============================
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"✅ Using device: {DEVICE}")
 
-def setup_environment():
+
+def setup_environment() -> None:
     torch.set_grad_enabled(False)
     os.environ["OMP_NUM_THREADS"] = "2"
 
-# =============================
-# データ読み込み
-# =============================
-def load_data_for_eval(config: Dict) -> Tuple[pd.DataFrame, LabelEncoder, Dict]:
-    print("📂 Loading labels and features...")
-    # CSV は label/{datatype}/... を使う
-    data_dt = config.get('datatype', 'animalkingdom')
-    train_df = pd.read_csv(f"./label/{data_dt}/train/labels.csv")
-    test_df = pd.read_csv(f"./label/{data_dt}/test/labels_test.csv")
-    train_df['source'] = 'train'
-    test_df['source'] = 'test'
+
+def load_data_for_eval(data_dt: str, pooling: bool):
+    print("📂 Loading labels and features... pooling =", pooling)
+
+    # CSV 読み込み
+    train_csv = f"./label/{data_dt}/train/labels.csv"
+    test_csv  = f"./label/{data_dt}/test/labels_test.csv"
+
+    train_df = pd.read_csv(train_csv)
+    test_df = pd.read_csv(test_csv)
+
+    train_df["source"] = "train"
+    test_df["source"] = "test"
     full_df = pd.concat([train_df, test_df], ignore_index=True)
     full_df["video_path"] = full_df["video_path"].str.replace("\\", "/").str.strip()
 
+    # LabelEncoder
     le_act = LabelEncoder().fit(full_df["action"])
     full_df["act_id"] = le_act.transform(full_df["action"])
 
-    features = {"flow": {}, "flow_centered": {}, "vmae": {}}
+    # 特徴量ディクショナリ（フレームリスト）
+    features = {
+        "vmae": {},
+        "flow": {},
+        "flow_centered": {},
+    }
 
-    # VMAE / X3D features: per your rule, use vector/polar when datatype == 'polar',
-    # otherwise use vector/animalkingdom for VMAE and x3d_vector/animalkingdom for X3D.
-    vec_root_name = 'polar' if data_dt == 'polar' else 'animalkingdom'
-    vmae_root = Path(f"./vector/{vec_root_name}")
-    x3d_root = Path(f"./x3d_vector/{vec_root_name}")
-    x3d_root_centered = Path(f"./x3d_vector_centered/{vec_root_name}")
+    # root 自動判定
+    def detect_vector_root(path_str: str) -> str:
+        low = path_str.lower()
+        if "polar" in low: return "polar"
+        if "animalkingdom" in low: return "animalkingdom"
+        return data_dt
 
-    # Load per-video .npy files
-    for _, row in tqdm(full_df.iterrows(), total=len(full_df), desc="Loading .npy features"):
-        path_str = row["video_path"]
-        vid = Path(path_str).stem
-        # VMAE: ./vector/<vec_root_name>/<video_name>/avg_pooling.npy
-        vmae_path = vmae_root / vid / "avg_pooling.npy"
-        if vmae_path.exists():
-            arr = np.load(vmae_path)
-            features['vmae'][path_str] = arr.squeeze(0) if arr.ndim > 1 else arr
+    def load_vectors(base_dir: Path) -> Optional[List[np.ndarray]]:
+        
+        if pooling:
+            avg_path = base_dir / "avg_pooling.npy"
+            if avg_path.exists():
+                arr = np.load(avg_path)
+                arr = arr.squeeze(0) if arr.ndim > 1 else arr
+                return [arr]    # ← 1件のリストで返す
+            return None
 
-        # X3D / flow: ./x3d_vector/<vec_root_name>/<video_name>/<video_name>.npy
-        npy_path = x3d_root / vid / f"{vid}.npy"
-        if npy_path.exists():
-            arr = np.load(npy_path)
-            features['flow'][path_str] = arr.squeeze(0) if arr.ndim > 1 else arr
+        else:
+            slide = base_dir / "sliding_list"
+            if slide.exists():
+                frames = sorted(slide.glob("*.npy"))
+                if frames:
+                    vecs = [np.load(p) for p in frames]
+                    return vecs     # ← フレームのリストで返す
+            return None
 
-        npy_path_c = x3d_root_centered / vid / f"{vid}.npy"
-        if npy_path_c.exists():
-            arr = np.load(npy_path_c)
-            features['flow_centered'][path_str] = arr.squeeze(0) if arr.ndim > 1 else arr
+    # ---------------------------------------------------------
+    # すべての動画に対して feature をロード（フレームレベル）
+    # ---------------------------------------------------------
+    for _, row in tqdm(full_df.iterrows(), total=len(full_df), desc="Loading features"):
+        p = row["video_path"]
+        vid = Path(p).stem
+        root = detect_vector_root(p)
+
+        # VMAE
+        v_dir = Path(f"./vector/{root}/{vid}")
+        v_vecs = load_vectors(v_dir)
+        if v_vecs is not None:
+            features["vmae"][p] = v_vecs
+
+        # X3D
+        x_dir = Path(f"./x3d_vector/{root}/{vid}")
+        x_vecs = load_vectors(x_dir)
+        if x_vecs is not None:
+            features["flow"][p] = x_vecs
+
+        # X3D centered
+        xc_dir = Path(f"./x3d_vector_centered/{root}/{vid}")
+        xc_vecs = load_vectors(xc_dir)
+        if xc_vecs is not None:
+            features["flow_centered"][p] = xc_vecs
 
     return full_df, le_act, features
 
-# =============================
-# モデル構築とロード
-# =============================
+
+# =================================
+# モデルロード
+# =================================
 def build_and_load_model(params: Dict):
+
     models = nn.ModuleDict()
-    model_path = Path(params['model_path'])
+    model_path = Path(params["model_path"])
+
     if not model_path.exists():
-        print(f"⚠️ Model not found: {model_path}")
+        print("⚠️ Model not found", model_path)
         return None
 
-    try:
-        state_dict = torch.load(model_path, map_location=DEVICE)
-    except Exception as e:
-        print(f"❌ Failed to load model: {e}")
-        return None
+    state_dict = torch.load(model_path, map_location=DEVICE)
 
-    fused_dim = params.get('fused_dim', 512)
-    D = fused_dim if params['train_mode'] == 'gated' else (2048 if params['train_mode'] == 'flow' else 768)
+    fused_dim = int(params.get("fused_dim", 512))
+    D = fused_dim if params["train_mode"] == "gated" else (
+        2048 if params["train_mode"] == "flow" else 768
+    )
 
     # Fusion
-    if params['train_mode'] == 'gated':
-        models['fusion'] = GatedFusion(2048, 768, fused_dim).to(DEVICE).eval()
-        fusion_state = {k.replace('fusion.', ''): v for k, v in state_dict.items() if k.startswith('fusion.')}
-        if fusion_state:
-            models['fusion'].load_state_dict(fusion_state)
+    if params["train_mode"] == "gated":
+        fusion = GatedFusion(2048, 768, fused_dim).to(DEVICE).eval()
+        fusion_state = {k.replace("fusion.", ""): v for k, v in state_dict.items() if k.startswith("fusion.")}
+        fusion.load_state_dict(fusion_state, strict=False)
+        models["fusion"] = fusion
 
     # Encoder
-    possible_prefixes = ['action_encoder.', 'net.']
-    chosen_prefix = next((p for p in possible_prefixes if any(k.startswith(p) for k in state_dict.keys())), '')
-    enc_state = {k.replace(chosen_prefix, ''): v for k, v in state_dict.items() if k.startswith(chosen_prefix)}
+    prefix = next((p for p in ["action_encoder.", "net."] if any(k.startswith(p) for k in state_dict)), "")
+    enc_state = {k.replace(prefix, ""): v for k, v in state_dict.items() if k.startswith(prefix)}
 
-    if not enc_state:
-        print(f"⚠️ Encoder weights not found in {model_path}")
-        return None
+    use_mlp = any(".0." in k or "act_embed.0" in k for k in enc_state)
+    encoder = (
+        ActionMLPNet(D, 256, 256).to(DEVICE).eval()
+        if use_mlp else ActionLinearNet(D, 256).to(DEVICE).eval()
+    )
+    encoder.load_state_dict(enc_state, strict=False)
+    models["encoder"] = encoder
 
-    keys = list(enc_state.keys())
-    has_mlp = any('.0.' in k or 'act_embed.0' in k for k in keys)
-
-    if has_mlp:
-        encoder = ActionMLPNet(D, 256, 256).to(DEVICE).eval()
-    else:
-        encoder = ActionLinearNet(D, 256).to(DEVICE).eval()
-
-    try:
-        encoder.load_state_dict(enc_state, strict=False)
-    except Exception as e:
-        print(f"⚠️ Loaded encoder non-strict due to {e}")
-
-    models['encoder'] = encoder
     return models
 
-# =============================
-# 埋め込み抽出
-# =============================
+
+# =================================
+# 埋め込み抽出（フレームレベル）
+# =================================
 def extract_embeddings(df, features, models, params):
-    emb_list, labels, sources = [], [], []
-    encoder = models['encoder']
-    fusion = models['fusion'] if 'fusion' in models else None
-    mode = params['train_mode']
+
+    mode = params["train_mode"]
+    flow_key = "flow_centered" if params.get("flow_preprocessing") == "centered" else "flow"
+
+    encoder = models["encoder"]
+    fusion = models.get("fusion", None)
+
+    emb_list = []
+    labels = []
+    sources = []
 
     for _, row in tqdm(df.iterrows(), total=len(df), desc=f"Extracting ({mode})"):
-        path = row["video_path"]
+        p = row["video_path"]
 
-        if mode == 'gated':
-            flow_key = 'flow_centered' if params.get('flow_preprocessing') == 'centered' else 'flow'
-            if path not in features[flow_key] or path not in features['vmae']:
+        # 取り出す feature のセット
+        if mode == "gated":
+            if p not in features[flow_key] or p not in features["vmae"]:
                 continue
-            x3d = torch.tensor(features[flow_key][path]).unsqueeze(0).float().to(DEVICE)
-            vmae = torch.tensor(features['vmae'][path]).unsqueeze(0).float().to(DEVICE)
-            x, _ = fusion(x3d, vmae)
+            x_list = features[flow_key][p]
+            v_list = features["vmae"][p]
+            # フレームレベル：短いほうに合わせる
+            for x_vec, v_vec in zip(x_list, v_list):
+                xx = torch.tensor(x_vec).unsqueeze(0).float().to(DEVICE)
+                vv = torch.tensor(v_vec).unsqueeze(0).float().to(DEVICE)
+                fused, _ = fusion(xx, vv)
+                emb = encoder(fused)
+
+                emb = nn.functional.normalize(emb, dim=-1)
+                emb_list.append(emb.squeeze(0).cpu())
+                labels.append(row["act_id"])
+                sources.append(row["source"])
+
         else:
-            fkey = 'vmae' if mode == 'mae' else ('flow_centered' if params.get('flow_preprocessing') == 'centered' else 'flow')
-            if path not in features[fkey]:
+            key = "vmae" if mode == "mae" else flow_key
+            if p not in features[key]:
                 continue
-            x = torch.tensor(features[fkey][path]).unsqueeze(0).float().to(DEVICE)
+            for vec in features[key][p]:
+                t = torch.tensor(vec).unsqueeze(0).float().to(DEVICE)
+                emb = encoder(t)
+                emb = nn.functional.normalize(emb, dim=-1)
 
-        a_vec = encoder(x)
-        emb_list.append(nn.functional.normalize(a_vec, dim=-1).squeeze(0).cpu())
-        labels.append(row["act_id"])
-        sources.append(row["source"])
+                emb_list.append(emb.squeeze(0).cpu())
+                labels.append(row["act_id"])
+                sources.append(row["source"])
 
     if not emb_list:
         return None, None, None
 
     return torch.stack(emb_list), np.array(labels), np.array(sources)
 
-# =============================
-# 可視化ヘルパー（見やすい色 + ラベル名）
-# =============================
-def _build_distinct_colors(n: int):
-    """
-    tab20をベースに、黄〜黄緑の近似色を避けつつ循環。
-    多クラスでも破綻しにくいようにtab20 -> tab20b -> tab20cの順で拡張。
-    """
-    cmaps = [get_cmap("tab20"), get_cmap("tab20b"), get_cmap("tab20c")]
-    pool = []
-    for cm in cmaps:
-        pool.extend([cm(i) for i in range(cm.N)])
-    # 黄に近い色を除外（HSVでなく簡易にRGB判定：RとGが強くBが弱い）
-    def is_yellowish(c):
-        r, g, b = to_rgb(c)
-        return (r > 0.7 and g > 0.7 and b < 0.4)
-    filtered = [c for c in pool if not is_yellowish(c)]
-    if len(filtered) < n:
-        # それでも足りなければ元色で埋める
-        filtered = pool
-    # 必要数だけ取り出し、足りなければループ
-    out = [filtered[i % len(filtered)] for i in range(n)]
-    return out
 
-def _plot_embedding(X_2d: np.ndarray, y_ids: np.ndarray, le_act: LabelEncoder,
-                    title: str, save_path: Path):
-    label_names = le_act.inverse_transform(y_ids)
+# =================================
+# 可視化（train/test区別）
+# =================================
+def _build_colors(n):
+    cmaps = [get_cmap("tab20"), get_cmap("tab20b"), get_cmap("tab20c")]
+    pool = [cm(i) for cm in cmaps for i in range(cm.N)]
+    return pool[:n]
+
+def _plot_with_source(X, y, s, le_act, title, save_path):
+    label_names = le_act.inverse_transform(y)
     uniq = np.unique(label_names)
-    colors = _build_distinct_colors(len(uniq))
+    colors = _build_colors(len(uniq))
     color_map = {lab: colors[i] for i, lab in enumerate(uniq)}
+
+    marker = {"train": "o", "test": "^"}
 
     plt.figure(figsize=(8, 6))
     for lab in uniq:
-        mask = (label_names == lab)
-        plt.scatter(
-            X_2d[mask, 0], X_2d[mask, 1],
-            s=14, alpha=0.9, color=color_map[lab], label=lab, edgecolors='none'
-        )
-    plt.title(title, fontsize=13)
+        for src in ["train", "test"]:
+            mask = (label_names == lab) & (s == src)
+            if mask.sum() == 0: continue
+            plt.scatter(
+                X[mask, 0], X[mask, 1],
+                color=color_map[lab],
+                marker=marker[src],
+                s=12, alpha=0.8,
+                label=f"{lab} ({src})"
+            )
+    plt.title(title)
     plt.xticks([]); plt.yticks([])
-    # 凡例を右外に（多クラス対応）
-    plt.legend(bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=8, frameon=False)
     plt.tight_layout()
     save_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(save_path, dpi=220)
     plt.close()
-    print(f"📌 Saved → {save_path}")
 
-# =============================
+
+# =================================
 # 評価 + 可視化
-# =============================
-def evaluate_and_visualize(embeddings, labels, sources, le_act, name, out_dir):
+# =================================
+def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
     tsne_dir = out_dir / "tsne"
     umap_dir = out_dir / "umap"
     tsne_dir.mkdir(parents=True, exist_ok=True)
     umap_dir.mkdir(parents=True, exist_ok=True)
 
-    if embeddings is None:
-        print(f"⚠️ No embeddings extracted for {name}")
-        return np.nan, np.nan
+    # === test のみで評価 ===
+    mask = (src == "test")
+    X_test = emb[mask].numpy()
+    y_test = lab[mask]
 
-    test_mask = (sources == 'test')
-    X_test, y_test = embeddings[test_mask], labels[test_mask]
-    if len(y_test) == 0:
-        return np.nan, np.nan
-
-    X_np = X_test.numpy()
     n_clusters = len(np.unique(y_test))
 
-    # ---- クラスタリング（ARI, NMI）
-    try:
-        clustering = AgglomerativeClustering(
-            n_clusters=n_clusters, metric='cosine', linkage='average'
-        )
-        pred = clustering.fit_predict(X_np)
-    except TypeError:
-        clustering = AgglomerativeClustering(
-            n_clusters=n_clusters, affinity='cosine', linkage='average'
-        )
-        pred = clustering.fit_predict(X_np)
-
+    clustering = AgglomerativeClustering(
+        n_clusters=n_clusters, metric="cosine", linkage="average"
+    )
+    pred = clustering.fit_predict(X_test)
     ari = adjusted_rand_score(y_test, pred)
     nmi = normalized_mutual_info_score(y_test, pred)
 
-    # ---- t-SNE（ラベル名カラー）
+    # === t-SNE ===
     try:
-        tsne = TSNE(
-            n_components=2, init="pca",
-            learning_rate="auto", perplexity=30,
-            random_state=42
-        )
-        X_tsne = tsne.fit_transform(X_np)
-        tsne_path = tsne_dir / f"{name}_tsne_labels.png"
-        _plot_embedding(X_tsne, y_test, le_act, f"t-SNE (True Labels) - {name}", tsne_path)
+        ts = TSNE(n_components=2, random_state=42, perplexity=30)
+        X2 = ts.fit_transform(emb.numpy())
+        # テストのみ
+        # X2 = ts.fit_transform(emb[src == "test"].numpy())
+        _plot_with_source(X2, lab, src, le_act, f"t-SNE - {name}", tsne_dir / f"{name}.png")
     except Exception as e:
-        print(f"⚠️ t-SNE failed for {name}: {e}")
+        print("t-SNE failed:", e)
 
-    # ---- UMAP（ラベル名カラー）
+    # === UMAP ===
     try:
-        reducer = umap.UMAP(
-            n_neighbors=15, min_dist=0.1, n_components=2,
-            metric="cosine", random_state=42
-        )
-        X_umap = reducer.fit_transform(X_np)
-        umap_path = umap_dir / f"{name}_umap_labels.png"
-        _plot_embedding(X_umap, y_test, le_act, f"UMAP (True Labels) - {name}", umap_path)
+        reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric="cosine")
+        U = reducer.fit_transform(emb.numpy())
+        _plot_with_source(U, lab, src, le_act, f"UMAP - {name}", umap_dir / f"{name}.png")
     except Exception as e:
-        print(f"⚠️ UMAP failed for {name}: {e}")
+        print("UMAP failed:", e)
 
     return ari, nmi
 
-# =============================
-# メイン処理
-# =============================
-def main(run_dir):
+
+# =================================
+# メイン
+# =================================
+def main(run_dir: Path):
     setup_environment()
 
     run_dir = Path(run_dir)
     ablation_root = run_dir / "ablation"
-    if not ablation_root.exists():
-        raise FileNotFoundError(f"❌ Ablation directory not found: {ablation_root}")
 
-    # Load baseline config
     baseline_path = run_dir / "baseline_config.json"
     if baseline_path.exists():
-        with open(baseline_path, "r", encoding="utf-8") as f:
-            baseline_cfg = json.load(f)
-        base_params = baseline_cfg.get("params", {})
-        base_params.update(baseline_cfg.get("user_attrs", {}))
-        print(f"✅ Loaded baseline parameters from {baseline_path}")
+        base_cfg = json.load(open(baseline_path))
+        params = base_cfg.get("params", {})
+        params.update(base_cfg.get("user_attrs", {}))
     else:
-        print("⚠ baseline_config.json not found, using default params.")
-        base_params = {
+        params = {
             "train_mode": "gated",
-            "adversarial": "off",
             "flow_preprocessing": "normal",
-            "loss_type": "triplet",
             "fused_dim": 512,
+            "datatype": "animalkingdom",
+            "pooling": True,   # ← default は pooling=False にしてある
         }
 
-    eval_root = Path(f"./eval_result/{run_dir.parent.name}/{run_dir.name}")
-    img_dir = eval_root / "images"
-    img_dir.mkdir(parents=True, exist_ok=True)
+    DATATYPE = params["datatype"]
+    POOLING = params.get("pooling", False)
 
-    DATATYPE = "wolf"
+    eval_root = run_dir / "eval"
+    eval_root.mkdir(exist_ok=True)
 
-    config = {
-        "train_csv": Path(f"./label/{DATATYPE}/train/labels.csv"),
-        "test_csv": Path(f"./label/{DATATYPE}/test/labels_test.csv"),
-        "datatype": DATATYPE,
-    }
-
-    full_df, le_act, features = load_data_for_eval(config)
-
-    model_paths = list(ablation_root.glob("**/*.pth"))
-    if not model_paths:
-        print("⚠️ No model files found!")
-        return
+    full_df, le_act, features = load_data_for_eval(DATATYPE, POOLING)
 
     results = []
+    model_paths = list(ablation_root.glob("**/*.pth"))
 
-    for model_path in tqdm(model_paths, desc="Evaluating models"):
-        rel_parts = model_path.relative_to(ablation_root).parts
-        ab_key = rel_parts[0] if len(rel_parts) > 0 else "unknown"
-        ab_value = rel_parts[1] if len(rel_parts) > 1 else "unknown"
+    for mp in tqdm(model_paths, desc="Evaluating"):
+        rel = mp.relative_to(ablation_root).parts
+        key = rel[0] if len(rel) > 0 else "unknown"
+        val = rel[1] if len(rel) > 1 else "unknown"
 
-        params = base_params.copy()
-        params["model_path"] = model_path
+        p = params.copy()
+        p["model_path"] = mp
+        if key == "train_mode": p["train_mode"] = val
+        if key == "flow_preprocessing": p["flow_preprocessing"] = val
 
-        # 変更対象パラメータを上書き
-        if ab_key == "train_mode":
-            params["train_mode"] = ab_value
-        elif ab_key == "adversarial":
-            params["adversarial"] = ab_value
-        elif ab_key == "flow_preprocessing":
-            params["flow_preprocessing"] = ab_value
+        model = build_and_load_model(p)
+        if model is None: continue
 
-        print(f"\n🧩 Evaluating {ab_key} = {ab_value}")
-
-        models = build_and_load_model(params)
-        if models is None:
-            continue
-
-        embeddings, labels, sources = extract_embeddings(full_df, features, models, params)
-        ari, nmi = evaluate_and_visualize(embeddings, labels, sources, le_act, model_path.stem, img_dir)
+        emb, lab, src = extract_embeddings(full_df, features, model, p)
+        ari, nmi = evaluate_and_visualize(emb, lab, src, le_act, mp.stem, eval_root)
 
         results.append({
-            "ablation_key": ab_key,
-            "ablation_value": ab_value,
-            "name": model_path.stem,
-            "train_mode": params.get("train_mode"),
-            "adversarial": params.get("adversarial"),
-            "flow_preprocessing": params.get("flow_preprocessing"),
-            "test_ari": ari,
-            "test_nmi": nmi,
-            "model_path": str(model_path)
+            "name": mp.stem,
+            "train_mode": p.get("train_mode"),
+            "flow_preprocessing": p.get("flow_preprocessing"),
+            "pooling": POOLING,
+            "ari": ari,
+            "nmi": nmi,
         })
 
-    # ============================================
-    # Markdown 出力のみ
-    # ============================================
-    df = pd.DataFrame(results)
-    df_sorted = df.sort_values(by="test_nmi", ascending=False)
+    pd.DataFrame(results).to_csv(eval_root / "eval_summary.csv", index=False)
+    print("Done.")
 
-    eval_root.mkdir(parents=True, exist_ok=True)
-    md_path = eval_root / "eval_summary.md"
-
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write("# Evaluation Summary (Markdown)\n\n")
-        f.write(f"Generated from `{run_dir}`\n\n")
-        f.write(df_sorted.to_markdown(index=False))
-        f.write("\n")
-
-    print(f"📄 Markdown summary saved to {md_path}")
 
 if __name__ == "__main__":
-    main("train_result/2025-11-26/run_001")
+    if len(sys.argv) > 1:
+        main(Path(sys.argv[1]))
+    else:
+        dirs = sorted(Path("train_result").glob("**/run_*"), reverse=True)
+        main(dirs[0])

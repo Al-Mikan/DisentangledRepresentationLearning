@@ -189,8 +189,31 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
 # ============================================================
 
 if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) > 1:
+        run_dir = Path(sys.argv[1])
+        if not run_dir.exists():
+            raise RuntimeError(f"❌ Specified run directory not found: {run_dir}")
+
+        print(f"▶ Using run directory from argument: {run_dir}")
+        run_optuna_ablation(
+            cfg_path="exec/config_search.yml",
+            abl_path="exec/ablation.yml",
+            run_dir_manual=str(run_dir),
+        )
+        exit()
+
+    all_runs = sorted(Path("train_result").glob("**/run_*"), reverse=True)
+
+    if not all_runs:
+        raise RuntimeError("❌ No run_* directories found under train_result/")
+
+    latest_run = all_runs[0]
+    print(f"▶ Auto-selected latest run directory: {latest_run}")
+
     run_optuna_ablation(
         cfg_path="exec/config_search.yml",
         abl_path="exec/ablation.yml",
-        run_dir_manual="train_result/2025-11-26/run_001",
+        run_dir_manual=str(latest_run),
     )

@@ -67,62 +67,53 @@ def build_datasets_and_loaders(
     le_act: LabelEncoder,
     le_sp: LabelEncoder,
 ) -> Tuple[DataLoader, DataLoader, Optional[nn.Module]]:
-    # CSV読込で使う datatype（例: 'animalkingdom_split' など）
-    data_dt = config.get('datatype', 'animalkingdom')
 
-    # ベクトル / X3D のルートは 'polar' のときだけ polar を使い、それ以外は animalkingdom を参照する
-    vec_root_name = 'polar' if data_dt == 'polar' else 'animalkingdom'
+    pooling  = bool(config.get("pooling", True))
+    centered = (config.get("flow_preprocessing", "normal") == "centered")
+    train_mode = config.get("train_mode", "gated")
 
-    x3d_dir_path = f"./x3d_vector/{vec_root_name}"
-    x3d_centered_dir_path = f"./x3d_vector_centered/{vec_root_name}"
-    current_x3d_path = x3d_centered_dir_path if config.get("flow_preprocessing", "normal") == "centered" else x3d_dir_path
-
-    vector_root = f"./vector/{vec_root_name}"
-    
     fusion_model: Optional[nn.Module] = None
-    if config["train_mode"] == "mae":
-        train_dataset = MAE_Dataset(
-            train_df,
-            le_act, le_sp,
-            vector_root=vector_root,
-            pooling=config["pooling"],
-        )
-        val_dataset = MAE_Dataset(
-            val_df,
-            le_act, le_sp,
-            vector_root=vector_root,
-            pooling=config["pooling"],
-        )
-    elif config["train_mode"] == "flow":
-        train_dataset = X3D_Dataset(train_df, le_act, le_sp, current_x3d_path, pooling=config["pooling"])
-        val_dataset = X3D_Dataset(val_df, le_act, le_sp, current_x3d_path, pooling=config["pooling"])
-    elif config["train_mode"] == "gated":
-        train_dataset = X3D_MAE_Dataset(
-            train_df,
-            le_act, le_sp,
-            x3d_dir=current_x3d_path,
-            vector_root=vector_root,
-            pooling=config["pooling"],
-        )
-        val_dataset = X3D_MAE_Dataset(
-            val_df,
-            le_act, le_sp,
-            x3d_dir=current_x3d_path,
-            vector_root=vector_root,
-            pooling=config["pooling"],
-        )
 
+    if train_mode == "mae":
+        train_dataset = MAE_Dataset(train_df, le_act, le_sp, pooling=pooling)
+        val_dataset   = MAE_Dataset(val_df,   le_act, le_sp, pooling=pooling)
+
+    elif train_mode == "flow":
+        train_dataset = X3D_Dataset(train_df, le_act, le_sp,
+                                    centered=centered, pooling=pooling)
+        val_dataset   = X3D_Dataset(val_df,   le_act, le_sp,
+                                    centered=centered, pooling=pooling)
+    elif train_mode == "gated":
+        train_dataset = X3D_MAE_Dataset(train_df, le_act, le_sp,
+                                        centered=centered, pooling=pooling)
+        val_dataset   = X3D_MAE_Dataset(val_df,   le_act, le_sp,
+                                        centered=centered, pooling=pooling)
+
+        # X3D_dim=2048, MAE_dim=768 → config["fused_dim"]
         fusion_model = GatedFusion(2048, 768, int(config["fused_dim"]))
         fusion_model = fusion_model.to(DEVICE)
+
     else:
-        raise ValueError(f"Unknown train_mode: {config['train_mode']}")
+        raise ValueError(f"Unknown train_mode: {train_mode}")
 
-    workers = int(config.get("num_workers", 0))
-    pin_memory = bool(config.get("pin_memory", torch.cuda.is_available()))
+    # ----------------------------
+    # Loader
+    # ----------------------------
+    workers     = int(config.get("num_workers", 0))
+    pin_memory  = bool(config.get("pin_memory", torch.cuda.is_available()))
+    batch_size  = int(config.get("batch_size", 32))
 
-    train_loader = DataLoader(train_dataset, batch_size=int(config["batch_size"]), shuffle=True, num_workers=workers, pin_memory=pin_memory)
-    val_loader = DataLoader(val_dataset, batch_size=int(config["batch_size"]), shuffle=False, num_workers=workers, pin_memory=pin_memory)
+    train_loader = DataLoader(
+        train_dataset, batch_size=batch_size,
+        shuffle=True, num_workers=workers, pin_memory=pin_memory
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=batch_size,
+        shuffle=False, num_workers=workers, pin_memory=pin_memory
+    )
+
     return train_loader, val_loader, fusion_model
+
 
 
 # --------------- Forward helpers ----------------
@@ -447,52 +438,6 @@ class DummyTrial:
 
     def should_prune(self) -> bool:
         return False
-
-def train_with_config(
-    config: Dict[str, Any],
-    full_df: pd.DataFrame,
-    le_act: LabelEncoder,
-    le_sp: LabelEncoder,
-    results_root: Optional[Path],
-    study_name: str = "ablation",
-    trial_number: int = -1,
-    category: Optional[str] = None,
-    ) -> Tuple[float, Optional[str]]:
-    """与えられた設定で1度だけ学習を回し、検証損失と保存モデルパスを返す。"""
-    # Split data
-    train_df, val_df = train_test_split(full_df, test_size=0.2, random_state=42, stratify=full_df['action'])
-
-    train_loader, val_loader, fusion_model = build_datasets_and_loaders(
-        config, train_df, val_df, le_act, le_sp
-    )
-
-    dummy_trial = DummyTrial(number=trial_number)
-    cat = category or "misc"
-    run_name = build_basename_from_config(config)
-    try:
-        best_val = train_model(
-            config,
-            train_loader,
-            val_loader,
-            le_sp,
-            dummy_trial,
-            study_name,
-            fusion=fusion_model,
-            results_root=results_root,
-            run_name_override=run_name,
-            is_ablation=True,
-            ablation_subdir=cat,
-        )
-    finally:
-        try:
-            del train_loader, val_loader, fusion_model
-            cleanup_memory()
-        except Exception:
-            pass
-
-        cleanup_memory()
-
-    return best_val, dummy_trial.user_attrs.get("model_save_path")
 
 
 # ---------- Inference and clustering metrics ----------
