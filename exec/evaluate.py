@@ -320,7 +320,7 @@ def main(run_dir: Path):
         }
 
     DATATYPE = params.get("datatype", "animalkingdom")
-    POOLING = params.get("pooling", False)
+    POOLING = params.get("pooling", True)
 
     eval_root = run_dir / "eval"
     eval_root.mkdir(exist_ok=True)
