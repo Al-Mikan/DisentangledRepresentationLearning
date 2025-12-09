@@ -271,17 +271,22 @@ def _plot_with_source(X, y, s, le_act, title, save_path):
 # 評価 + 可視化
 # =================================
 def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
-    tsne_dir = out_dir / "tsne"
-    umap_dir = out_dir / "umap"
-    tsne_dir.mkdir(parents=True, exist_ok=True)
-    umap_dir.mkdir(parents=True, exist_ok=True)
+
+    # === ディレクトリ構築 ===
+    tsne_all_dir = out_dir / "tsne" / "all"
+    tsne_test_dir = out_dir / "tsne" / "test_only"
+    umap_all_dir = out_dir / "umap" / "all"
+    umap_test_dir = out_dir / "umap" / "test_only"
+
+    for d in [tsne_all_dir, tsne_test_dir, umap_all_dir, umap_test_dir]:
+        d.mkdir(parents=True, exist_ok=True)
 
     # === test のみで評価 ===
-    mask = (src == "test")
-    X_test = emb[mask].numpy()
-    y_test = lab[mask]
-    n_clusters = len(np.unique(y_test))
+    mask_test = (src == "test")
+    X_test = emb[mask_test].numpy()
+    y_test = lab[mask_test]
 
+    n_clusters = len(np.unique(y_test))
     clustering = AgglomerativeClustering(
         n_clusters=n_clusters, metric="cosine", linkage="average"
     )
@@ -289,23 +294,58 @@ def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
     ari = adjusted_rand_score(y_test, pred)
     nmi = normalized_mutual_info_score(y_test, pred)
 
-    # === t-SNE ===
+    # ==========
+    # t-SNE（all）
+    # ==========
     try:
         ts = TSNE(n_components=2, random_state=42, perplexity=30)
-        X2 = ts.fit_transform(emb.numpy())
-        _plot_with_source(X2, lab, src, le_act, f"t-SNE - {name}", tsne_dir / f"{name}.png")
+
+        # all
+        X2_all = ts.fit_transform(emb.numpy())
+        _plot_with_source(
+            X2_all, lab, src, le_act,
+            f"t-SNE (train+test) - {name}",
+            tsne_all_dir / f"{name}.png"
+        )
+
+        # test only
+        X2_test = ts.fit_transform(X_test)
+        _plot_with_source(
+            X2_test, y_test, np.array(["test"] * len(y_test)), le_act,
+            f"t-SNE (test only) - {name}",
+            tsne_test_dir / f"{name}.png"
+        )
+
     except Exception as e:
         print("t-SNE failed:", e)
 
-    # === UMAP ===
+    # ==========
+    # UMAP（all）
+    # ==========
     try:
         reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric="cosine")
-        U = reducer.fit_transform(emb.numpy())
-        _plot_with_source(U, lab, src, le_act, f"UMAP - {name}", umap_dir / f"{name}.png")
+
+        # all
+        U_all = reducer.fit_transform(emb.numpy())
+        _plot_with_source(
+            U_all, lab, src, le_act,
+            f"UMAP (train+test) - {name}",
+            umap_all_dir / f"{name}.png"
+        )
+
+        # test only
+        U_test = reducer.fit_transform(X_test)
+        _plot_with_source(
+            U_test, y_test, np.array(["test"] * len(y_test)), le_act,
+            f"UMAP (test only) - {name}",
+            umap_test_dir / f"{name}.png"
+        )
+
     except Exception as e:
         print("UMAP failed:", e)
 
     return ari, nmi
+
 
 
 # =================================
