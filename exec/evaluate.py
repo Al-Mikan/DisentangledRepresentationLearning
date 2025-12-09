@@ -170,7 +170,7 @@ def extract_embeddings(df, features, models, params):
     flow_key = "flow_centered" if params.get("flow_preprocessing") == "centered" else "flow"
 
     encoder = models["encoder"]
-    fusion = models.get("fusion", None)
+    fusion = models["fusion"] if "fusion" in models else None
 
     emb_list = []
     labels = []
