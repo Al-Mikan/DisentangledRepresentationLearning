@@ -23,7 +23,7 @@ import umap
 
 
 # =================================
-# モデルのimport（学習時と同じ）
+# モデルの import
 # =================================
 from model import (
     GatedFusion, ActionLinearNet, ActionMLPNet,
@@ -39,10 +39,12 @@ def setup_environment() -> None:
     os.environ["OMP_NUM_THREADS"] = "2"
 
 
+# =================================
+# データロード
+# =================================
 def load_data_for_eval(data_dt: str, pooling: bool):
     print("📂 Loading labels and features... pooling =", pooling)
 
-    # CSV 読み込み
     train_csv = f"./label/{data_dt}/train/labels.csv"
     test_csv  = f"./label/{data_dt}/test/labels_test.csv"
 
@@ -54,11 +56,9 @@ def load_data_for_eval(data_dt: str, pooling: bool):
     full_df = pd.concat([train_df, test_df], ignore_index=True)
     full_df["video_path"] = full_df["video_path"].str.replace("\\", "/").str.strip()
 
-    # LabelEncoder
     le_act = LabelEncoder().fit(full_df["action"])
     full_df["act_id"] = le_act.transform(full_df["action"])
 
-    # 特徴量ディクショナリ（フレームリスト）
     features = {
         "vmae": {},
         "flow": {},
@@ -72,28 +72,24 @@ def load_data_for_eval(data_dt: str, pooling: bool):
         if "animalkingdom" in low: return "animalkingdom"
         return data_dt
 
+    # feature ロード
     def load_vectors(base_dir: Path) -> Optional[List[np.ndarray]]:
-        
         if pooling:
             avg_path = base_dir / "avg_pooling.npy"
             if avg_path.exists():
                 arr = np.load(avg_path)
                 arr = arr.squeeze(0) if arr.ndim > 1 else arr
-                return [arr]    # ← 1件のリストで返す
+                return [arr]
             return None
-
         else:
             slide = base_dir / "sliding_list"
             if slide.exists():
-                frames = sorted(slide.glob("*.npy"))
-                if frames:
-                    vecs = [np.load(p) for p in frames]
-                    return vecs     # ← フレームのリストで返す
+                files = sorted(slide.glob("*.npy"))
+                if files:
+                    return [np.load(p) for p in files]
             return None
 
-    # ---------------------------------------------------------
-    # すべての動画に対して feature をロード（フレームレベル）
-    # ---------------------------------------------------------
+    # full_df のすべての動画に対して feature をロード
     for _, row in tqdm(full_df.iterrows(), total=len(full_df), desc="Loading features"):
         p = row["video_path"]
         vid = Path(p).stem
@@ -105,7 +101,7 @@ def load_data_for_eval(data_dt: str, pooling: bool):
         if v_vecs is not None:
             features["vmae"][p] = v_vecs
 
-        # X3D
+        # X3D normal
         x_dir = Path(f"./x3d_vector/{root}/{vid}")
         x_vecs = load_vectors(x_dir)
         if x_vecs is not None:
@@ -139,18 +135,23 @@ def build_and_load_model(params: Dict):
         2048 if params["train_mode"] == "flow" else 768
     )
 
-    # Fusion
+    # Fusion モデル
     if params["train_mode"] == "gated":
         fusion = GatedFusion(2048, 768, fused_dim).to(DEVICE).eval()
-        fusion_state = {k.replace("fusion.", ""): v for k, v in state_dict.items() if k.startswith("fusion.")}
+        fusion_state = {k.replace("fusion.", ""): v
+                        for k, v in state_dict.items()
+                        if k.startswith("fusion.")}
         fusion.load_state_dict(fusion_state, strict=False)
         models["fusion"] = fusion
 
     # Encoder
-    prefix = next((p for p in ["action_encoder.", "net."] if any(k.startswith(p) for k in state_dict)), "")
-    enc_state = {k.replace(prefix, ""): v for k, v in state_dict.items() if k.startswith(prefix)}
+    prefix = next((p for p in ["action_encoder.", "net."]
+                   if any(k.startswith(p) for k in state_dict)), "")
+    enc_state = {k.replace(prefix, ""): v
+                 for k, v in state_dict.items() if k.startswith(prefix)}
 
     use_mlp = any(".0." in k or "act_embed.0" in k for k in enc_state)
+
     encoder = (
         ActionMLPNet(D, 256, 256).to(DEVICE).eval()
         if use_mlp else ActionLinearNet(D, 256).to(DEVICE).eval()
@@ -162,7 +163,7 @@ def build_and_load_model(params: Dict):
 
 
 # =================================
-# 埋め込み抽出（フレームレベル）
+# 埋め込み抽出
 # =================================
 def extract_embeddings(df, features, models, params):
 
@@ -179,20 +180,19 @@ def extract_embeddings(df, features, models, params):
     for _, row in tqdm(df.iterrows(), total=len(df), desc=f"Extracting ({mode})"):
         p = row["video_path"]
 
-        # 取り出す feature のセット
         if mode == "gated":
             if p not in features[flow_key] or p not in features["vmae"]:
                 continue
             x_list = features[flow_key][p]
             v_list = features["vmae"][p]
-            # フレームレベル：短いほうに合わせる
+
             for x_vec, v_vec in zip(x_list, v_list):
                 xx = torch.tensor(x_vec).unsqueeze(0).float().to(DEVICE)
                 vv = torch.tensor(v_vec).unsqueeze(0).float().to(DEVICE)
                 fused, _ = fusion(xx, vv)
                 emb = encoder(fused)
-
                 emb = nn.functional.normalize(emb, dim=-1)
+
                 emb_list.append(emb.squeeze(0).cpu())
                 labels.append(row["act_id"])
                 sources.append(row["source"])
@@ -217,38 +217,53 @@ def extract_embeddings(df, features, models, params):
 
 
 # =================================
-# 可視化（train/test区別）
+# 可視化用（ラベル + train/test）
 # =================================
 def _build_colors(n):
     cmaps = [get_cmap("tab20"), get_cmap("tab20b"), get_cmap("tab20c")]
     pool = [cm(i) for cm in cmaps for i in range(cm.N)]
     return pool[:n]
 
+
 def _plot_with_source(X, y, s, le_act, title, save_path):
     label_names = le_act.inverse_transform(y)
     uniq = np.unique(label_names)
+
     colors = _build_colors(len(uniq))
     color_map = {lab: colors[i] for i, lab in enumerate(uniq)}
 
     marker = {"train": "o", "test": "^"}
 
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(10, 8))
+    handled = set()
+
     for lab in uniq:
         for src in ["train", "test"]:
             mask = (label_names == lab) & (s == src)
-            if mask.sum() == 0: continue
+            if mask.sum() == 0:
+                continue
+
+            legend_name = f"{lab} ({src})"
+            lbl = legend_name if legend_name not in handled else None
+            handled.add(legend_name)
+
             plt.scatter(
                 X[mask, 0], X[mask, 1],
                 color=color_map[lab],
                 marker=marker[src],
-                s=12, alpha=0.8,
-                label=f"{lab} ({src})"
+                s=14, alpha=0.75,
+                label=lbl
             )
+
     plt.title(title)
     plt.xticks([]); plt.yticks([])
+
+    # ← 凡例を外側に出して切れないようにする
+    plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
     plt.tight_layout()
+
     save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_path, dpi=220)
+    plt.savefig(save_path, dpi=220, bbox_inches="tight")
     plt.close()
 
 
@@ -265,7 +280,6 @@ def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
     mask = (src == "test")
     X_test = emb[mask].numpy()
     y_test = lab[mask]
-
     n_clusters = len(np.unique(y_test))
 
     clustering = AgglomerativeClustering(
@@ -279,8 +293,6 @@ def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
     try:
         ts = TSNE(n_components=2, random_state=42, perplexity=30)
         X2 = ts.fit_transform(emb.numpy())
-        # テストのみ
-        # X2 = ts.fit_transform(emb[src == "test"].numpy())
         _plot_with_source(X2, lab, src, le_act, f"t-SNE - {name}", tsne_dir / f"{name}.png")
     except Exception as e:
         print("t-SNE failed:", e)
@@ -316,7 +328,7 @@ def main(run_dir: Path):
             "flow_preprocessing": "normal",
             "fused_dim": 512,
             "datatype": "animalkingdom",
-            "pooling": True,   # ← default は pooling=False にしてある
+            "pooling": True,
         }
 
     DATATYPE = params.get("datatype", "animalkingdom")
@@ -337,11 +349,14 @@ def main(run_dir: Path):
 
         p = params.copy()
         p["model_path"] = mp
-        if key == "train_mode": p["train_mode"] = val
-        if key == "flow_preprocessing": p["flow_preprocessing"] = val
+        if key == "train_mode":
+            p["train_mode"] = val
+        if key == "flow_preprocessing":
+            p["flow_preprocessing"] = val
 
         model = build_and_load_model(p)
-        if model is None: continue
+        if model is None:
+            continue
 
         emb, lab, src = extract_embeddings(full_df, features, model, p)
         ari, nmi = evaluate_and_visualize(emb, lab, src, le_act, mp.stem, eval_root)
@@ -355,7 +370,21 @@ def main(run_dir: Path):
             "nmi": nmi,
         })
 
+    # CSV 出力
     pd.DataFrame(results).to_csv(eval_root / "eval_summary.csv", index=False)
+
+    # Markdown 出力
+    md_path = eval_root / "eval_summary.md"
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("# Evaluation Summary\n\n")
+        f.write("| Model | Train Mode | Flow Preprocess | Pooling | ARI | NMI |\n")
+        f.write("|-------|------------|-----------------|---------|------|------|\n")
+        for r in results:
+            f.write(
+                f"| {r['name']} | {r['train_mode']} | {r['flow_preprocessing']} | "
+                f"{r['pooling']} | {r['ari']:.4f} | {r['nmi']:.4f} |\n"
+            )
+
     print("Done.")
 
 
@@ -363,14 +392,8 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main(Path(sys.argv[1]))
     else:
-        # train_result 内から一番新しい run_* ディレクトリを選ぶ
-        dirs = [
-            d for d in Path("train_result").glob("**/run_*")
-            if d.is_dir()
-        ]
+        dirs = [d for d in Path("train_result").glob("**/run_*") if d.is_dir()]
         dirs = sorted(dirs, reverse=True)
-
         if len(dirs) == 0:
             raise RuntimeError("No run_* directory found under train_result/")
-
         main(dirs[0])
