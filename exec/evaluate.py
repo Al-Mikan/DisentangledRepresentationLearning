@@ -319,7 +319,7 @@ def main(run_dir: Path):
             "pooling": True,   # ← default は pooling=False にしてある
         }
 
-    DATATYPE = params["datatype"]
+    DATATYPE = params.get("datatype", "animalkingdom")
     POOLING = params.get("pooling", False)
 
     eval_root = run_dir / "eval"
