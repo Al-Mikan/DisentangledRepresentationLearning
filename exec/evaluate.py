@@ -331,8 +331,24 @@ def main(run_dir: Path):
             "pooling": True,
         }
 
-    DATATYPE = params.get("datatype", "animalkingdom")
-    POOLING = params.get("pooling", True)
+    note_path = run_dir / "run_note.txt"
+    if note_path.exists():
+        import json
+        try:
+            # run_note.txt の JSON 部分だけを読む
+            txt = open(note_path, "r", encoding="utf-8").read()
+            json_part = txt.split("=== Run Configuration (After Training) ===")[-1]
+            run_info = json.loads(json_part)
+            
+            # datatype, pooling などを上書き or 補完
+            params.setdefault("datatype", run_info.get("datatype"))
+            params.setdefault("pooling", run_info.get("pooling"))
+            DATATYPE = params["datatype"]
+            POOLING = params["pooling"]
+            print(f"📘 Loaded run config from run_note: datatype={params['datatype']}, pooling={params['pooling']}")
+        except Exception as e:
+            print("⚠ Could not read run_note.txt:", e)
+
 
     eval_root = run_dir / "eval"
     eval_root.mkdir(exist_ok=True)
