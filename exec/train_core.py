@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import gc
-from exec.triplet_losses import grl
+from triplet_losses import grl
 import numpy as np
 import pandas as pd
 import torch
