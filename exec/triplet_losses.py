@@ -43,3 +43,22 @@ class CosineTripletLoss(torch.nn.Module):
         # Loss: max(0, margin + sim_neg - sim_pos)
         loss = F.relu(self.margin + sim_neg - sim_pos)
         return loss.mean()
+    
+
+
+# === Gradient Reversal Layer (GRL) ===
+from torch.autograd import Function
+
+class GradientReversalFunction(Function):
+    @staticmethod
+    def forward(ctx, x, lambda_):
+        ctx.lambda_ = lambda_
+        return x.view_as(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return -ctx.lambda_ * grad_output, None
+
+
+def grl(x, lambda_):
+    return GradientReversalFunction.apply(x, lambda_)

@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import gc
+from exec.triplet_losses import grl
 import numpy as np
 import pandas as pd
 import torch
@@ -206,6 +207,12 @@ def train_step(
         elif adv_mode == "gan":
             ce_enc = nn.CrossEntropyLoss()(logits, s)
             total = total - float(config["lambda_adv"]) * ce_enc
+        elif adv_mode == "dann":
+            reversed_vec = grl(a_vec, float(config["lambda_adv"]))
+            logits_dann = models["discriminator"](reversed_vec)
+
+            adv_loss = nn.CrossEntropyLoss()(logits_dann, s)
+            total = total + adv_loss
 
     total.backward()
     enc = models["action_encoder"] if "action_encoder" in models else models["net"]

@@ -8,7 +8,7 @@ datatype: wolf
 # === モード設定 ===
 train_mode: gated # mae / flow / gated
 loss_type: triplet # supcon / cosine / triplet
-adversarial: [gan, kl] # True: GAN方式 / False: 通常正則化
+adversarial: [gan, kl, dann] # True: GAN方式 / False: 通常正則化
 flow_preprocessing: [normal, centered] # normal / centered
 pooling: True
 
