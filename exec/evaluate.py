@@ -26,8 +26,7 @@ import umap
 # モデルの import
 # =================================
 from model import (
-    GatedFusion, ActionLinearNet, ActionMLPNet,
-    SimpleLinearNet, SimpleMLPNet
+    GatedFusion,  ActionMLPNet,
 )
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -130,14 +129,19 @@ def build_and_load_model(params: Dict):
 
     state_dict = torch.load(model_path, map_location=DEVICE)
 
-    fused_dim = int(params.get("fused_dim", 512))
-    D = fused_dim if params["train_mode"] == "gated" else (
-        2048 if params["train_mode"] == "flow" else 768
-    )
+    train_mode = params.get("train_mode")
+    if train_mode == "gated":
+        D = int(params["fused_dim"])
+    elif train_mode == "flow":
+        D = 2048
+    elif train_mode == "mae":
+        D = 768
+    else:
+        raise ValueError("Unknown train_mode")
 
     # Fusion モデル
     if params["train_mode"] == "gated":
-        fusion = GatedFusion(2048, 768, fused_dim).to(DEVICE).eval()
+        fusion = GatedFusion(2048, 768, int(params["fused_dim"])).to(DEVICE).eval()
         fusion_state = {k.replace("fusion.", ""): v
                         for k, v in state_dict.items()
                         if k.startswith("fusion.")}
@@ -150,11 +154,8 @@ def build_and_load_model(params: Dict):
     enc_state = {k.replace(prefix, ""): v
                  for k, v in state_dict.items() if k.startswith(prefix)}
 
-    use_mlp = any(".0." in k or "act_embed.0" in k for k in enc_state)
-
     encoder = (
         ActionMLPNet(D, 256, 256).to(DEVICE).eval()
-        if use_mlp else ActionLinearNet(D, 256).to(DEVICE).eval()
     )
     encoder.load_state_dict(enc_state, strict=False)
     models["encoder"] = encoder
@@ -176,6 +177,7 @@ def extract_embeddings(df, features, models, params):
     emb_list = []
     labels = []
     sources = []
+    meta_rows = []
 
     for _, row in tqdm(df.iterrows(), total=len(df), desc=f"Extracting ({mode})"):
         p = row["video_path"]
@@ -196,6 +198,7 @@ def extract_embeddings(df, features, models, params):
                 emb_list.append(emb.squeeze(0).cpu())
                 labels.append(row["act_id"])
                 sources.append(row["source"])
+                meta_rows.append(row)
 
         else:
             key = "vmae" if mode == "mae" else flow_key
@@ -209,11 +212,12 @@ def extract_embeddings(df, features, models, params):
                 emb_list.append(emb.squeeze(0).cpu())
                 labels.append(row["act_id"])
                 sources.append(row["source"])
+                meta_rows.append(row) 
 
     if not emb_list:
         return None, None, None
 
-    return torch.stack(emb_list), np.array(labels), np.array(sources)
+    return torch.stack(emb_list), np.array(labels), np.array(sources), pd.DataFrame(meta_rows)
 
 
 # =================================
@@ -300,25 +304,31 @@ def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
     try:
         ts = TSNE(n_components=2, random_state=42, perplexity=30)
 
-        # all
-        X2_all = ts.fit_transform(emb.numpy())
+        # --- (1) train+test で fit ---
+        X_all = emb.numpy()
+        X2_all = ts.fit_transform(X_all)
+
+        # --- (2) test だけ transform ---
+        # t-SNE は transform をサポートしていないので、
+        # 対応ライブラリ (openTSNE) を使う必要がある。
+        # ここでは簡便に、train+test の結果から test の部分だけ抜き出して再利用する。
+
+        X2_test = X2_all[mask_test]
+
         _plot_with_source(
             X2_all, lab, src, le_act,
-            f"t-SNE (train+test) - {name}",
+            f"t-SNE (train+test unified) - {name}",
             tsne_all_dir / f"{name}.png"
         )
 
-        # test only
-        X2_test = ts.fit_transform(X_test)
         _plot_with_source(
             X2_test, y_test, np.array(["test"] * len(y_test)), le_act,
-            f"t-SNE (test only) - {name}",
+            f"t-SNE (test only, same coords) - {name}",
             tsne_test_dir / f"{name}.png"
         )
 
     except Exception as e:
         print("t-SNE failed:", e)
-
     # ==========
     # UMAP（all）
     # ==========
@@ -414,7 +424,28 @@ def main(run_dir: Path):
         if model is None:
             continue
 
-        emb, lab, src = extract_embeddings(full_df, features, model, p)
+        emb, lab, src, df_meta = extract_embeddings(full_df, features, model, p)
+
+        # =============================
+        # train / test に分割して JSONL 保存
+        # =============================
+        df_full = full_df.reset_index(drop=True)
+
+        mask_train = (src == "train")
+        mask_test  = (src == "test")
+
+        df_train = df_meta[mask_train]
+        df_test  = df_meta[mask_test]
+
+        e_train = emb[mask_train]
+        e_test = emb[mask_test]
+
+        save_jsonl(eval_root / f"{mp.stem}_train.jsonl",
+                   df_train, lab[mask_train], src[mask_train], e_train)
+
+        save_jsonl(eval_root / f"{mp.stem}_test.jsonl",
+                   df_test, lab[mask_test], src[mask_test], e_test)
+
         ari, nmi = evaluate_and_visualize(emb, lab, src, le_act, mp.stem, eval_root)
 
         results.append({
@@ -443,6 +474,21 @@ def main(run_dir: Path):
 
     print("Done.")
 
+
+# =================================
+# JSONL 保存ユーティリティ
+# =================================
+def save_jsonl(path: Path, df, labels, sources, embeddings):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        for i in range(len(embeddings)):
+            obj = {
+                "videopath": df.iloc[i]["video_path"],
+                "label": df.iloc[i]["action"],
+                "source": df.iloc[i]["source"],
+                "vector": embeddings[i].tolist(),
+            }
+            f.write(json.dumps(obj) + "\n")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:

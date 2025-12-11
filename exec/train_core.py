@@ -302,7 +302,7 @@ def train_model(
     # -------------------------------
     if adv_enabled:
         models["action_encoder"] = (
-            ActionMLPNet(D, 256, 256) if config.get("use_mlp", True) else ActionLinearNet(D, 256)
+            ActionMLPNet(D, 256, 256) 
         ).to(DEVICE)
         models["discriminator"] = SpeciesDiscriminator(256, len(le_sp.classes_)).to(DEVICE)
         params_enc = list(models["action_encoder"].parameters())
@@ -316,8 +316,8 @@ def train_model(
             models["discriminator"].parameters(), lr=disc_lr, weight_decay=wd
         )
     else:
-        models["net"] = (
-            SimpleMLPNet(D, 256, 256) if config.get("use_mlp", True) else SimpleLinearNet(D, 256)
+        models["net"] = (   
+            SimpleMLPNet(D, 256, 256)
         ).to(DEVICE)
         params = list(models["net"].parameters())
         if fusion is not None:
