@@ -27,7 +27,6 @@ class BaseDataset(Dataset):
         df = df.copy()
         df["video_path"] = df["video_path"].str.replace("\\", "/").str.strip()
 
-        # 🔥 action/species をここで数値化
         df["action"] = le_act.transform(df["action"])
         df["species"] = le_sp.transform(df["species"])
 
@@ -38,11 +37,10 @@ class BaseDataset(Dataset):
     def __len__(self):
         return len(self.df)
 
-    # 便利ヘルパー
     @staticmethod
     def _load_sliding(dir_path: Path):
         files = sorted((dir_path).glob("*.npy"))
-        mats = [np.load(f) for f in files]
+        mats = [np.load(f).squeeze() for f in files]  
         return np.stack(mats)
 
 
@@ -76,7 +74,7 @@ class MAE_Dataset(BaseDataset):
         base = Path(f"./vector/{root}/{vid}")
 
         if self.pooling:
-            x = np.load(base / "avg_pooling.npy")
+            x = np.load(base / "avg_pooling.npy").squeeze() 
         else:
             x = self._load_sliding(base / "sliding_list")
 
@@ -121,7 +119,7 @@ class X3D_Dataset(BaseDataset):
         base = Path(f"./{folder}/{root}/{vid}")
 
         if self.pooling:
-            x = np.load(base / "avg_pooling.npy")
+            x = np.load(base / "avg_pooling.npy").squeeze()  
         else:
             x = self._load_sliding(base / "sliding_list")
 
@@ -146,7 +144,6 @@ class X3D_MAE_Dataset(BaseDataset):
             vid = Path(row["video_path"]).stem
             root = detect_vec_root(row["video_path"])
 
-            # x3d
             folder = "x3d_vector_centered" if centered else "x3d_vector"
             xb = Path(f"./{folder}/{root}/{vid}")
 
@@ -157,7 +154,6 @@ class X3D_MAE_Dataset(BaseDataset):
                 if not list((xb/"sliding_list").glob("*.npy")):
                     continue
 
-            # mae
             mb = Path(f"./vector/{root}/{vid}")
             if pooling:
                 if not (mb / "avg_pooling.npy").exists():
@@ -175,19 +171,17 @@ class X3D_MAE_Dataset(BaseDataset):
         vid  = Path(row["video_path"]).stem
         root = detect_vec_root(row["video_path"])
 
-        # X3D
         folder = "x3d_vector_centered" if self.centered else "x3d_vector"
         xb = Path(f"./{folder}/{root}/{vid}")
 
         if self.pooling:
-            x3d = np.load(xb / "avg_pooling.npy")
+            x3d = np.load(xb / "avg_pooling.npy").squeeze()
         else:
             x3d = self._load_sliding(xb / "sliding_list")
 
-        # MAE
         mb = Path(f"./vector/{root}/{vid}")
         if self.pooling:
-            mae = np.load(mb / "avg_pooling.npy")
+            mae = np.load(mb / "avg_pooling.npy").squeeze() 
             return (
                 torch.tensor(x3d, dtype=torch.float32),
                 torch.tensor(mae, dtype=torch.float32),
@@ -196,8 +190,6 @@ class X3D_MAE_Dataset(BaseDataset):
             )
 
         mae_mat = self._load_sliding(mb / "sliding_list")
-
-        # フレーム整形
         T = min(x3d.shape[0], mae_mat.shape[0])
         return (
             torch.tensor(x3d[:T], dtype=torch.float32),
@@ -206,8 +198,8 @@ class X3D_MAE_Dataset(BaseDataset):
             torch.tensor(row["species"], dtype=torch.long),
         )
 
+
 def set_seed(seed: int) -> None:
-    """乱数シード固定"""
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
