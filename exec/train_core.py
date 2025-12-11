@@ -26,7 +26,7 @@ from sklearn.model_selection import train_test_split
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-EARLY_STOP_PATIENCE = 30
+EARLY_STOP_PATIENCE = 50
 
 
 
@@ -281,7 +281,15 @@ def train_model(
     """モデル学習ループ（Optuna・アブレーション共通）"""
 
     sample = next(iter(train_loader))[0]
-    D = int(config["fused_dim"]) if fusion is not None else int(sample.shape[1])
+    train_mode = config.get("train_mode")
+    if train_mode == "gated":
+        D = int(config["fused_dim"])
+    elif train_mode == "flow":
+        D = 2048
+    elif train_mode == "mae":
+        D = 768
+    else:
+        raise ValueError("Unknown train_mode")
 
     models = nn.ModuleDict()
     optimizers: Dict[str, torch.optim.Optimizer] = {}
@@ -358,7 +366,7 @@ def train_model(
     best_val = float("inf")
     best_epoch = -1
     no_improve = 0
-    max_epochs = int(config.get("epochs", 100))
+    max_epochs = int(config.get("epochs", 500))
 
     for epoch in range(max_epochs):
         batch_losses: List[float] = []

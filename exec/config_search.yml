@@ -3,11 +3,11 @@
 project_name: animalkingdom
 experiment_name: triplet_vs_gan
 output_root: ./train_result
-datatype: wolf
+datatype: animalkingdom
 
 # === モード設定 ===
-train_mode: gated # mae / flow / gated
-loss_type: triplet # supcon / cosine / triplet
+train_mode: [gated] # mae / flow / gated
+loss_type: [triplet] # supcon / cosine / triplet
 adversarial: [gan, kl, dann] # True: GAN方式 / False: 通常正則化
 flow_preprocessing: [normal, centered] # normal / centered
 pooling: True

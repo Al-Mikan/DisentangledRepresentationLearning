@@ -56,7 +56,7 @@ def main() -> None:
     print("📂 Loading dataset & encoders...")
     datatype = search_space.get("datatype", "animalkingdom")
     train_csv = f"./label/{datatype}/train/labels.csv"
-    
+
     full_df = pd.read_csv(train_csv)
     full_df["video_path"] = full_df["video_path"].str.replace("\\", "/").str.strip()
 
@@ -141,6 +141,7 @@ def main() -> None:
         "value": best_trial.value,
         "params": best_trial.params,
         "user_attrs": best_trial.user_attrs,
+        "config_used": search_space,
     }
     baseline_path = results_root / "baseline_config.json"
     with open(baseline_path, "w", encoding="utf-8") as f:

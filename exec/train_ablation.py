@@ -32,16 +32,24 @@ def load_baseline_json(run_dir: Path) -> dict:
 
 
 def merge_config_in_memory(yaml_config: dict, json_config: dict) -> dict:
-    """YAML 設定に baseline JSON をネスト対応で上書き"""
+    """
+    json_config をベースにしつつ、yaml_config で上書きする。
+    → yaml が強い（優先）
+    """
     def recursive_merge(base, override):
         result = base.copy()
         for k, v in override.items():
-            if isinstance(v, dict) and k in result and isinstance(result[k], dict):
+            if (
+                isinstance(v, dict)
+                and k in result
+                and isinstance(result[k], dict)
+            ):
                 result[k] = recursive_merge(result[k], v)
             else:
                 result[k] = v
         return result
-    return recursive_merge(yaml_config, json_config)
+
+    return recursive_merge(json_config, yaml_config)
 
 
 # ============================================================
@@ -64,16 +72,6 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
 
     # === baseline と config_search.yml をマージ ===
     merged_config = merge_config_in_memory(base_yaml, baseline_params)
-
-    # --- adversarial キーを baseline 優先で上書き ---
-    adv = None
-    if "adversarial" in baseline_params:
-        adv = baseline_params["adversarial"]
-    elif "adversarial" in baseline_params.get("user_attrs", {}):
-        adv = baseline_params["user_attrs"]["adversarial"]
-
-    if isinstance(adv, str):
-        merged_config["adversarial"] = adv
 
     # === データ読み込み ===
     datatype = merged_config.get("datatype", "animalkingdom")

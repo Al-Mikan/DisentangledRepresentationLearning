@@ -196,7 +196,17 @@ def objective(
 
     return mean_score
 
-
+def check_dataset_shapes(train_loader, mode):
+    batch = next(iter(train_loader))
+    print("=== Checking Dataset ===")
+    if mode == "gated":
+        x3d, mae, a, s = batch
+        print("x3d:", x3d.shape)
+        print("mae:", mae.shape)
+    else:
+        x, a, s = batch
+        print("x:", x.shape)
+    print("=========================")
 
 def _run_one_fold(
     trial,
@@ -214,6 +224,8 @@ def _run_one_fold(
 
     try:
         train_loader, val_loader, fusion_model = build_datasets_and_loaders(config, train_df, val_df, le_act, le_sp)
+        check_dataset_shapes(train_loader, config["train_mode"])
+
         _ = train_model(config, train_loader, val_loader, le_sp, trial, study_name="optuna", fusion=fusion_model, results_root=results_root)
 
         model_path = trial.user_attrs.get("model_save_path")
