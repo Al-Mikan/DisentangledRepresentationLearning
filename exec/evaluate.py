@@ -154,9 +154,7 @@ def build_and_load_model(params: Dict):
     enc_state = {k.replace(prefix, ""): v
                  for k, v in state_dict.items() if k.startswith(prefix)}
 
-    encoder = (
-        ActionMLPNet(D, 256, 256).to(DEVICE).eval()
-    )
+    encoder = ActionMLPNet(D, 256, 256).to(DEVICE).eval()
     encoder.load_state_dict(enc_state, strict=False)
     models["encoder"] = encoder
 
@@ -212,10 +210,10 @@ def extract_embeddings(df, features, models, params):
                 emb_list.append(emb.squeeze(0).cpu())
                 labels.append(row["act_id"])
                 sources.append(row["source"])
-                meta_rows.append(row) 
+                meta_rows.append(row)
 
     if not emb_list:
-        return None, None, None
+        return None, None, None, None
 
     return torch.stack(emb_list), np.array(labels), np.array(sources), pd.DataFrame(meta_rows)
 
@@ -262,7 +260,6 @@ def _plot_with_source(X, y, s, le_act, title, save_path):
     plt.title(title)
     plt.xticks([]); plt.yticks([])
 
-    # ← 凡例を外側に出して切れないようにする
     plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
     plt.tight_layout()
 
@@ -276,7 +273,6 @@ def _plot_with_source(X, y, s, le_act, title, save_path):
 # =================================
 def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
 
-    # === ディレクトリ構築 ===
     tsne_all_dir = out_dir / "tsne" / "all"
     tsne_test_dir = out_dir / "tsne" / "test_only"
     umap_all_dir = out_dir / "umap" / "all"
@@ -304,14 +300,8 @@ def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
     try:
         ts = TSNE(n_components=2, random_state=42, perplexity=30)
 
-        # --- (1) train+test で fit ---
         X_all = emb.numpy()
         X2_all = ts.fit_transform(X_all)
-
-        # --- (2) test だけ transform ---
-        # t-SNE は transform をサポートしていないので、
-        # 対応ライブラリ (openTSNE) を使う必要がある。
-        # ここでは簡便に、train+test の結果から test の部分だけ抜き出して再利用する。
 
         X2_test = X2_all[mask_test]
 
@@ -329,13 +319,13 @@ def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
 
     except Exception as e:
         print("t-SNE failed:", e)
+
     # ==========
     # UMAP（all）
     # ==========
     try:
         reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric="cosine")
 
-        # all
         U_all = reducer.fit_transform(emb.numpy())
         _plot_with_source(
             U_all, lab, src, le_act,
@@ -343,7 +333,6 @@ def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
             umap_all_dir / f"{name}.png"
         )
 
-        # test only
         U_test = reducer.fit_transform(X_test)
         _plot_with_source(
             U_test, y_test, np.array(["test"] * len(y_test)), le_act,
@@ -357,7 +346,6 @@ def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
     return ari, nmi
 
 
-
 # =================================
 # メイン
 # =================================
@@ -367,38 +355,38 @@ def main(run_dir: Path):
     run_dir = Path(run_dir)
     ablation_root = run_dir / "ablation"
 
+    # ---- baseline_config.json 読み込み ----
     baseline_path = run_dir / "baseline_config.json"
     if baseline_path.exists():
-        base_cfg = json.load(open(baseline_path))
-        params = base_cfg.get("params", {})
+        with open(baseline_path, "r", encoding="utf-8") as f:
+            base_cfg = json.load(f)
+        params = {}
+        params.update(base_cfg.get("params", {}))
         params.update(base_cfg.get("user_attrs", {}))
     else:
-        params = {
-            "train_mode": "gated",
-            "flow_preprocessing": "normal",
-            "fused_dim": 512,
-            "datatype": "animalkingdom",
-            "pooling": True,
-        }
+        params = {}
 
+    # デフォルト値
+    DATATYPE = params.get("datatype", "animalkingdom")
+    POOLING = bool(params.get("pooling", True))
+
+    # ---- run_note.txt から上書き（あれば）----
     note_path = run_dir / "run_note.txt"
     if note_path.exists():
-        import json
         try:
-            # run_note.txt の JSON 部分だけを読む
-            txt = open(note_path, "r", encoding="utf-8").read()
+            txt = note_path.read_text(encoding="utf-8")
             json_part = txt.split("=== Run Configuration (After Training) ===")[-1]
             run_info = json.loads(json_part)
-            
-            # datatype, pooling などを上書き or 補完
-            params.setdefault("datatype", run_info.get("datatype"))
-            params.setdefault("pooling", run_info.get("pooling"))
-            DATATYPE = params["datatype"]
-            POOLING = params["pooling"]
-            print(f"📘 Loaded run config from run_note: datatype={params['datatype']}, pooling={params['pooling']}")
+
+            DATATYPE = run_info.get("datatype", DATATYPE)
+            POOLING = run_info.get("pooling", POOLING)
+
+            params.setdefault("datatype", DATATYPE)
+            params.setdefault("pooling", POOLING)
+
+            print(f"📘 Loaded run config from run_note: datatype={DATATYPE}, pooling={POOLING}")
         except Exception as e:
             print("⚠ Could not read run_note.txt:", e)
-
 
     eval_root = run_dir / "eval"
     eval_root.mkdir(exist_ok=True)
@@ -425,12 +413,12 @@ def main(run_dir: Path):
             continue
 
         emb, lab, src, df_meta = extract_embeddings(full_df, features, model, p)
+        if emb is None:
+            continue
 
         # =============================
         # train / test に分割して JSONL 保存
         # =============================
-        df_full = full_df.reset_index(drop=True)
-
         mask_train = (src == "train")
         mask_test  = (src == "test")
 
@@ -438,7 +426,7 @@ def main(run_dir: Path):
         df_test  = df_meta[mask_test]
 
         e_train = emb[mask_train]
-        e_test = emb[mask_test]
+        e_test  = emb[mask_test]
 
         save_jsonl(eval_root / f"{mp.stem}_train.jsonl",
                    df_train, lab[mask_train], src[mask_train], e_train)
@@ -489,6 +477,7 @@ def save_jsonl(path: Path, df, labels, sources, embeddings):
                 "vector": embeddings[i].tolist(),
             }
             f.write(json.dumps(obj) + "\n")
+
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
