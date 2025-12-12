@@ -141,7 +141,7 @@ def build_and_load_model(params: Dict):
 
     # Fusion モデル
     if params["train_mode"] == "gated":
-        fusion = GatedFusion(2048, 768, int(params["fused_dim"])).to(DEVICE).eval()
+        fusion = GatedFusion(2048, 768, int(params.get("fused_dim", 512))   ).to(DEVICE).eval()
         fusion_state = {k.replace("fusion.", ""): v
                         for k, v in state_dict.items()
                         if k.startswith("fusion.")}
