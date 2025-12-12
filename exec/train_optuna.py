@@ -231,8 +231,15 @@ def _run_one_fold(
         model_path = trial.user_attrs.get("model_save_path")
         if not model_path:
             return None
+        
+        if config["train_mode"] == "gated":
+            D = int(config["fused_dim"])
+        elif config["train_mode"] == "flow":
+            D = 2048
+        elif config["train_mode"] == "mae":
+            D = 768
 
-        inf_models = _build_inference_models(config, D=config["fused_dim"], fusion=fusion_model)
+        inf_models = _build_inference_models(config, D=D, fusion=fusion_model)
         state = torch.load(model_path, map_location="cuda" if torch.cuda.is_available() else "cpu")
         inf_models.load_state_dict(state, strict=False)
 
