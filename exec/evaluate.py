@@ -131,7 +131,7 @@ def build_and_load_model(params: Dict):
 
     train_mode = params.get("train_mode")
     if train_mode == "gated":
-        D = int(params["fused_dim"])
+        D = int(params.get("fused_dim", 512))   
     elif train_mode == "flow":
         D = 2048
     elif train_mode == "mae":
