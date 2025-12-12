@@ -26,7 +26,7 @@ batch_size: 32
 disc_steps_per_batch: 1
 
 # === 学習環境 ===
-epochs: 100
+epochs: 500
 num_workers: 4
 pin_memory: true
 device: cuda
