@@ -166,13 +166,16 @@ def train_step(
     optimizers: Dict[str, torch.optim.Optimizer],
     config: Dict[str, Any],
     le_sp: LabelEncoder,
-) -> Tuple[float, Optional[np.ndarray]]:
+) -> Tuple[float, Optional[np.ndarray], Optional[float], Optional[float]]:
     for m in models.values():
         m.train()
 
     a_vec, a, s, alpha = _encode_batch(models, batch, config)
     adv_mode = config.get("adversarial", "off")
     adv_enabled = adv_mode != "off"
+
+    disc_loss_val: Optional[float] = None
+    disc_acc_val: Optional[float] = None
 
     if adv_enabled:
         discriminator = models["discriminator"]
@@ -181,6 +184,10 @@ def train_step(
             opt_disc.zero_grad()
             logits_disc = discriminator(a_vec.detach())
             ce = nn.CrossEntropyLoss()(logits_disc, s)
+            pred_disc = logits_disc.argmax(dim=1)
+            correct = (pred_disc == s).float().mean().item()
+            disc_loss_val = float(ce.item())
+            disc_acc_val = float(correct)
             ce.backward()
             opt_disc.step()
 
@@ -223,7 +230,7 @@ def train_step(
     main_opt.step()
 
     alpha_np = alpha.detach().cpu().numpy() if alpha is not None else None
-    return float(total.item()), alpha_np
+    return float(total.item()), alpha_np, disc_loss_val, disc_acc_val
 
 
 def evaluate_model(models: nn.ModuleDict, loader: DataLoader, config: Dict[str, Any], loss_fn: nn.Module, miner: Optional[nn.Module]) -> float:
@@ -371,13 +378,19 @@ def train_model(
 
     for epoch in range(max_epochs):
         batch_losses: List[float] = []
+        disc_losses: List[float] = []
+        disc_accs: List[float] = []
         alpha_parts: List[np.ndarray] = []  # ← 追加: alphaを格納するリスト
 
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1:03d}"):
-            loss_val, alpha_np = train_step(models, batch, loss_fn, miner, optimizers, config, le_sp)
+            loss_val, alpha_np, disc_loss_val, disc_acc_val = train_step(models, batch, loss_fn, miner, optimizers, config, le_sp)
             batch_losses.append(loss_val)
             if alpha_np is not None:
                 alpha_parts.append(alpha_np)
+            if disc_loss_val is not None:
+                disc_losses.append(disc_loss_val)
+            if disc_acc_val is not None:
+                disc_accs.append(disc_acc_val)
 
         # GatedFusion α 保存
         save_alpha_epoch(alpha_parts, epoch, config, trial, results_root, is_ablation)
@@ -385,13 +398,17 @@ def train_model(
         # 検証
         val_loss = evaluate_model(models, val_loader, config, loss_fn, miner)
 
-        wandb.log(
-            {
-                "epoch": epoch + 1,
-                "train_loss": float(np.mean(batch_losses)),
-                "val_loss": float(val_loss),
-            }
-        )
+        log_dict = {
+            "epoch": epoch + 1,
+            "train_loss": float(np.mean(batch_losses)),
+            "val_loss": float(val_loss),
+        }
+        if disc_losses:
+            log_dict["disc/loss"] = float(np.mean(disc_losses))
+        if disc_accs:
+            log_dict["disc/acc"] = float(np.mean(disc_accs))
+
+        wandb.log(log_dict)
 
 
         # ベストモデル保存とearly stopping
