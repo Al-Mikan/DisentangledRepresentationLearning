@@ -220,7 +220,7 @@ def _run_one_fold(
 ):
     run_name = f"trial{trial.number}_fold{fold+1}_{config['train_mode']}_{config['loss_type']}"
 
-    wandb.init(project=config["project_name"], config=config, name=run_name, reinit=True, mode="disabled")
+    wandb.init(project=config["project_name"], config=config, name=run_name, reinit=True)
 
     try:
         train_loader, val_loader, fusion_model = build_datasets_and_loaders(config, train_df, val_df, le_act, le_sp)
@@ -251,6 +251,18 @@ def _run_one_fold(
         score = val_norm - 0.3 * abs(val_norm - train_norm)
 
         print(f"  Fold{fold+1} | train={combined_train:.3f}, val={combined_val:.3f}, score={score:.3f}, val_loss={best_val_score:.4f}")
+        wandb.log(
+            {
+                "fold": fold + 1,
+                "ari_train": ari_train,
+                "nmi_train": nmi_train,
+                "combined_train": combined_train,
+                "ari_val": ari_val,
+                "nmi_val": nmi_val,
+                "combined_val": combined_val,
+                "score": score,
+            }
+        )
 
         return score
 

@@ -23,6 +23,7 @@ from model import (
 from pytorch_metric_learning import losses, miners, distances
 import optuna
 from sklearn.model_selection import train_test_split
+import wandb
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -383,6 +384,15 @@ def train_model(
 
         # 検証
         val_loss = evaluate_model(models, val_loader, config, loss_fn, miner)
+
+        wandb.log(
+            {
+                "epoch": epoch + 1,
+                "train_loss": float(np.mean(batch_losses)),
+                "val_loss": float(val_loss),
+            }
+        )
+
 
         # ベストモデル保存とearly stopping
         if val_loss < best_val:
