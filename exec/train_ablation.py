@@ -17,7 +17,6 @@ def load_yaml(path: str):
 
 
 def load_baseline_json(run_dir: Path) -> dict:
-    """Optuna のベスト結果（baseline_config.json）を読み込む"""
     baseline_path = run_dir / "baseline_config.json"
     if not baseline_path.exists():
         raise FileNotFoundError(f"❌ baseline_config.json not found in {run_dir}")
@@ -27,6 +26,19 @@ def load_baseline_json(run_dir: Path) -> dict:
 
     merged = data.get("params", {}).copy()
     merged.update(data.get("user_attrs", {}))
+
+    # 👇 ablation では使わない情報は全部削除
+    for k in [
+        "model_save_path",
+        "best_epoch",
+        "epochs_run",
+        "cv_scores",
+        "cv_mean",
+        "exception",
+        "traceback",
+    ]:
+        merged.pop(k, None)
+
     return merged
 
 
