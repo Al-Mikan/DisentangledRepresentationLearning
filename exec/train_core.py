@@ -53,10 +53,10 @@ def get_loss_fn_and_miner(
     elif loss_type == "cosine":
         distance = distances.CosineSimilarity()
         loss_fn = losses.TripletMarginLoss(distance=distance, margin=triplet_margin)
-        miner = miners.TripletMarginMiner(margin=triplet_margin, distance=distance, type_of_triplets="hard")
+        miner = miners.TripletMarginMiner(margin=triplet_margin, distance=distance, type_of_triplets="semihard")
     else:  # default triplet
         loss_fn = losses.TripletMarginLoss(margin=triplet_margin)
-        miner = miners.TripletMarginMiner(margin=triplet_margin, type_of_triplets="hard")
+        miner = miners.TripletMarginMiner(margin=triplet_margin, type_of_triplets="semihard")
     return loss_fn, miner
 
 

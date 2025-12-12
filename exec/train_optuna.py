@@ -218,7 +218,10 @@ def _run_one_fold(
     results_root,
     fold
 ):
-    run_name = f"trial{trial.number}_fold{fold+1}_{config['train_mode']}_{config['loss_type']}"
+    run_name = run_name = (
+            f"trial_{trial.number}_{config['train_mode']}_{config['loss_type']}_adv{config['adversarial']}_pool{config.get('pooling', True)}"
+            + (f"_{config['flow_preprocessing']}" if config.get("train_mode") in ["flow", "gated"] else "")
+        )
 
     wandb.init(project=config["project_name"], config=config, name=run_name, reinit=True)
 

@@ -6,18 +6,6 @@ import torch.nn.functional as F
 # -----------------------------
 # 1. Action Embedding Models
 # -----------------------------
-class SimpleLinearNet(nn.Module):
-    def __init__(self, input_dim, feature_dim):
-        super().__init__()
-        self.action_head = nn.Linear(input_dim, feature_dim, bias=False)
-        self._init_weights()
-
-    def forward(self, x):
-        x = self.action_head(x)
-        return F.normalize(x, dim=-1)
-
-    def _init_weights(self):
-        nn.init.xavier_uniform_(self.action_head.weight)
 
 class SimpleMLPNet(nn.Module):
     def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.2):
@@ -46,19 +34,6 @@ class SimpleMLPNet(nn.Module):
 # -----------------------------
 # 2. Adversarial Discriminator Setup
 # -----------------------------
-class ActionLinearNet(nn.Module):
-    def __init__(self, input_dim, feature_dim):
-        super().__init__()
-        self.encoder = nn.Linear(input_dim, feature_dim, bias=False)
-        self._init_weights()
-
-    def forward(self, x):
-        x = self.encoder(x)
-        return F.normalize(x, dim=-1)
-
-    def _init_weights(self):
-        nn.init.xavier_uniform_(self.encoder.weight)
-    
 class ActionMLPNet(nn.Module):
     def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.2):
         super().__init__()
@@ -110,7 +85,7 @@ class SpeciesDiscriminator(nn.Module):
 # 4. Gated Fusion
 # -----------------------------
 class GatedFusion(nn.Module):
-    def __init__(self, d_x3d, d_vmae, d_hidden, p_drop=0.1):
+    def __init__(self, d_x3d=2048, d_vmae=768, d_hidden=512, p_drop=0.1):
         super().__init__()
         self.x3d_fc = nn.Linear(d_x3d, d_hidden)
         self.vmae_fc = nn.Linear(d_vmae, d_hidden)
