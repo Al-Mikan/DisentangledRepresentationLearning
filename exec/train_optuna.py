@@ -226,7 +226,7 @@ def _run_one_fold(
         train_loader, val_loader, fusion_model = build_datasets_and_loaders(config, train_df, val_df, le_act, le_sp)
         check_dataset_shapes(train_loader, config["train_mode"])
 
-        _ = train_model(config, train_loader, val_loader, le_sp, trial, study_name="optuna", fusion=fusion_model, results_root=results_root)
+        best_val_score = train_model(config, train_loader, val_loader, le_sp, trial, study_name="optuna", fusion=fusion_model, results_root=results_root)
 
         model_path = trial.user_attrs.get("model_save_path")
         if not model_path:
@@ -250,7 +250,7 @@ def _run_one_fold(
         train_norm = (combined_train + 1) / 2
         score = val_norm - 0.3 * abs(val_norm - train_norm)
 
-        print(f"  Fold{fold+1} | train={combined_train:.3f}, val={combined_val:.3f}, score={score:.3f}")
+        print(f"  Fold{fold+1} | train={combined_train:.3f}, val={combined_val:.3f}, score={score:.3f}, val_loss={best_val_score:.4f}")
 
         return score
 
