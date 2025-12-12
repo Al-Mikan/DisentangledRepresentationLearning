@@ -17,7 +17,7 @@ from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 from utils import set_seed
 from utils import MAE_Dataset,X3D_Dataset, X3D_MAE_Dataset
 from model import (
-    SimpleLinearNet, SimpleMLPNet, ActionLinearNet, ActionMLPNet,
+    SimpleMLPNet,  ActionMLPNet,
     SpeciesDiscriminator, GatedFusion
 )
 from pytorch_metric_learning import losses, miners, distances
