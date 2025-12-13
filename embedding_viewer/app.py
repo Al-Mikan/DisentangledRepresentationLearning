@@ -14,7 +14,7 @@ app = Flask(__name__)
 # --------------------------------------------------------
 # 設定：train_result の位置（ここだけ変えれば良い）
 # --------------------------------------------------------
-TRAIN_RESULT_ROOT = Path("~/Documents/labo/DisentangledRepresentationLearning/train_result")
+TRAIN_RESULT_ROOT = Path("/home/asel/Documents/labo/DisentangledRepresentationLearning/train_result")
 
 
 # --------------------------------------------------------
