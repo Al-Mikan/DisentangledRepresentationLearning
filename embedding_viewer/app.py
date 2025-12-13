@@ -249,12 +249,12 @@ def plot():
             n_components=2,
             perplexity=perplexity,
             learning_rate=lr,
-            n_iter=n_iter,
             early_exaggeration=early_ex,
             metric=metric,
         )
-        X2 = reducer.fit_transform(X)
+        X2 = reducer.fit_transform(X, n_iter=n_iter)
         summary = f"t-SNE / N={len(X)} samples"
+
     else:
         reducer = umap.UMAP(
             n_neighbors=n_neighbors,
