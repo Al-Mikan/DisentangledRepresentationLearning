@@ -347,6 +347,79 @@ def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
 
 
 # =================================
+# α ログの解析（mean / var を epoch ごとに可視化）
+# =================================
+def analyze_alpha_logs(run_dir: Path, out_dir: Path):
+    alpha_dir = run_dir / "alpha_logs"
+    if not alpha_dir.exists():
+        print("ℹ️ alpha_logs directory not found, skip alpha analysis.")
+        return
+
+    stats = []  # (epoch, mean, var)
+
+    for npy_path in sorted(alpha_dir.glob("*.npy")):
+        stem = npy_path.stem  # e.g. alpha_trial023_epoch027
+        epoch = None
+        for part in stem.split("_"):
+            if part.startswith("epoch"):
+                try:
+                    epoch = int(part.replace("epoch", ""))
+                except ValueError:
+                    pass
+
+        if epoch is None:
+            print(f"⚠️ Could not parse epoch from filename: {npy_path.name}")
+            continue
+
+        try:
+            alpha_epoch = np.load(npy_path)  # shape: (N, D)
+            alpha_epoch = alpha_epoch.astype(np.float32)
+        except Exception as e:
+            print(f"⚠️ Failed to load {npy_path}: {e}")
+            continue
+
+        mean_alpha = float(alpha_epoch.mean())
+        var_alpha = float(alpha_epoch.var())
+
+        stats.append((epoch, mean_alpha, var_alpha))
+
+    if not stats:
+        print("ℹ️ No valid alpha logs found.")
+        return
+
+    # epoch 順にソート
+    stats.sort(key=lambda x: x[0])
+    epochs  = [s[0] for s in stats]
+    means   = [s[1] for s in stats]
+    variances = [s[2] for s in stats]
+
+    # CSV 保存
+    alpha_csv = out_dir / "alpha_stats.csv"
+    df_alpha = pd.DataFrame({
+        "epoch": epochs,
+        "alpha_mean": means,
+        "alpha_var": variances,
+    })
+    df_alpha.to_csv(alpha_csv, index=False)
+    print(f"✅ Saved alpha stats → {alpha_csv}")
+
+    # グラフ保存（mean と var を同じ図に描く）
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, means, marker="o", label="mean α")
+    plt.plot(epochs, variances, marker="s", label="var α")
+    plt.xlabel("Epoch")
+    plt.ylabel("Value")
+    plt.title("Gating α statistics over epochs")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    out_path = out_dir / "alpha_mean_var.png"
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=220)
+    plt.close()
+    print(f"✅ Saved alpha mean/var plot → {out_path}")
+
+
+# =================================
 # メイン
 # =================================
 def main(run_dir: Path):
@@ -460,6 +533,9 @@ def main(run_dir: Path):
                 f"{r['pooling']} | {r['ari']:.4f} | {r['nmi']:.4f} |\n"
             )
 
+     # --- α ログの解析 & 可視化 ---
+    analyze_alpha_logs(run_dir, eval_root)
+    
     print("Done.")
 
 
