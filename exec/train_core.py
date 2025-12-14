@@ -166,7 +166,11 @@ def train_step(
     optimizers: Dict[str, torch.optim.Optimizer],
     config: Dict[str, Any],
     le_sp: LabelEncoder,
-) -> Tuple[float, Optional[np.ndarray], Optional[float], Optional[float]]:
+) -> Tuple[float, Optional[np.ndarray], Optional[float], Optional[float], Optional[float]]:
+    """
+    戻り値:
+        total_loss, alpha_np, disc_loss_val, disc_acc_val, cls_loss_val
+    """
     for m in models.values():
         m.train()
 
@@ -176,7 +180,9 @@ def train_step(
 
     disc_loss_val: Optional[float] = None
     disc_acc_val: Optional[float] = None
+    cls_loss_val: Optional[float] = None
 
+    # --- Discriminator の更新 ---
     if adv_enabled:
         discriminator = models["discriminator"]
         opt_disc = optimizers["discriminator"]
@@ -191,11 +197,13 @@ def train_step(
             ce.backward()
             opt_disc.step()
 
+    # --- encoder(main) の更新 ---
     main_opt = optimizers.get("encoder") or optimizers.get("main")
     if main_opt is None:
         raise RuntimeError("Missing main optimizer")
     main_opt.zero_grad()
 
+    # metric loss
     if config["loss_type"] == "supcon":
         main_loss = loss_fn(a_vec, labels=a)
     elif miner is not None:
@@ -205,6 +213,16 @@ def train_step(
         main_loss = loss_fn(a_vec, a)
 
     total = main_loss
+
+    # --- 行動分類 CE  ---
+    lambda_cls = float(config.get("lambda_cls", 0.0))
+    if lambda_cls > 0:
+        logits_act = models["action_classifier"](a_vec)
+        ce_act = nn.CrossEntropyLoss()(logits_act, a)
+        total = total + lambda_cls * ce_act
+        cls_loss_val = float(ce_act.item())
+
+    # --- 種の敵対的学習 ---
     if adv_enabled:
         logits = models["discriminator"](a_vec)
         if adv_mode == "kl":
@@ -212,13 +230,14 @@ def train_step(
             uniform = torch.full_like(logits, 1.0 / len(le_sp.classes_))
             adv_loss = nn.KLDivLoss(reduction="batchmean")(logp, uniform)
             total = total + float(config["lambda_adv"]) * adv_loss
+
         elif adv_mode == "gan":
             ce_enc = nn.CrossEntropyLoss()(logits, s)
             total = total - float(config["lambda_adv"]) * ce_enc
+
         elif adv_mode == "dann":
             reversed_vec = grl(a_vec, float(config["lambda_adv"]))
             logits_dann = models["discriminator"](reversed_vec)
-
             adv_loss = nn.CrossEntropyLoss()(logits_dann, s)
             total = total + adv_loss
 
@@ -230,25 +249,8 @@ def train_step(
     main_opt.step()
 
     alpha_np = alpha.detach().cpu().numpy() if alpha is not None else None
-    return float(total.item()), alpha_np, disc_loss_val, disc_acc_val
+    return float(total.item()), alpha_np, disc_loss_val, disc_acc_val, cls_loss_val
 
-
-def evaluate_model(models: nn.ModuleDict, loader: DataLoader, config: Dict[str, Any], loss_fn: nn.Module, miner: Optional[nn.Module]) -> float:
-    for m in models.values():
-        m.eval()
-    losses_acc: List[float] = []
-    with torch.no_grad():
-        for batch in loader:
-            a_vec, a, _s, _alpha = _encode_batch(models, batch, config)
-            if config["loss_type"] == "supcon":
-                loss = loss_fn(a_vec, labels=a)
-            elif miner is not None:
-                hard = miner(a_vec, a)
-                loss = loss_fn(a_vec, a, hard)
-            else:
-                loss = loss_fn(a_vec, a)
-            losses_acc.append(float(loss.item()))
-    return float(np.mean(losses_acc)) if losses_acc else float("inf")
 
 
 def save_alpha_epoch(alpha_parts: List[np.ndarray], epoch: int, config: Dict[str, Any], trial: optuna.trial.Trial, results_root: Optional[Path], is_ablation: bool) -> None:
@@ -273,11 +275,52 @@ def save_alpha_epoch(alpha_parts: List[np.ndarray], epoch: int, config: Dict[str
         print(f"⚠️ Failed to save temp alpha for trial #{trial.number}, epoch {epoch}: {e}")
 
 
+def evaluate_model(
+    models: nn.ModuleDict,
+    loader: DataLoader,
+    config: Dict[str, Any],
+    loss_fn: nn.Module,
+    miner: Optional[nn.Module],
+) -> float:
+    """
+    valid でも train と同じく
+    metric loss + lambda_cls * CE を使って val_loss を計算
+    """
+    for m in models.values():
+        m.eval()
+    losses_acc: List[float] = []
+    lambda_cls = float(config.get("lambda_cls", 0.0))
+
+    with torch.no_grad():
+        for batch in loader:
+            a_vec, a, _s, _alpha = _encode_batch(models, batch, config)
+
+            # metric loss
+            if config["loss_type"] == "supcon":
+                loss = loss_fn(a_vec, labels=a)
+            elif miner is not None:
+                hard = miner(a_vec, a)
+                loss = loss_fn(a_vec, a, hard)
+            else:
+                loss = loss_fn(a_vec, a)
+
+            # 行動 CE も加える（lambda_cls = 0 の時は実質無効）
+            if lambda_cls > 0:
+                logits_act = models["action_classifier"](a_vec)
+                ce_act = nn.CrossEntropyLoss()(logits_act, a)
+                loss = loss + lambda_cls * ce_act
+
+            losses_acc.append(float(loss.item()))
+
+    return float(np.mean(losses_acc)) if losses_acc else float("inf")
+
+
 def train_model(
     config: Dict[str, Any],
     train_loader: DataLoader,
     val_loader: DataLoader,
     le_sp: LabelEncoder,
+    le_act: LabelEncoder,
     trial,
     study_name: str,
     fusion: Optional[nn.Module] = None,
@@ -288,7 +331,6 @@ def train_model(
 ) -> float:
     """モデル学習ループ（Optuna・アブレーション共通）"""
 
-    sample = next(iter(train_loader))[0]
     train_mode = config.get("train_mode")
     if train_mode == "gated":
         D = int(config["fused_dim"])
@@ -305,37 +347,54 @@ def train_model(
     adv_mode = config.get("adversarial", "off")
     adv_enabled = adv_mode != "off"
 
+    num_species = len(le_sp.classes_)
+    num_actions = len(le_act.classes_)
+
     # -------------------------------
     # モデル・オプティマイザ構築
     # -------------------------------
     if adv_enabled:
-        models["action_encoder"] = (
-            ActionMLPNet(D, 256, 256) 
-        ).to(DEVICE)
-        models["discriminator"] = SpeciesDiscriminator(256, len(le_sp.classes_)).to(DEVICE)
-        params_enc = list(models["action_encoder"].parameters())
+        models["action_encoder"] = ActionMLPNet(D, 256, 256).to(DEVICE)
+        models["discriminator"] = SpeciesDiscriminator(256, num_species).to(DEVICE)
+        models["action_classifier"] = nn.Linear(256, num_actions).to(DEVICE)
+
+        params_enc = list(models["action_encoder"].parameters()) + \
+                     list(models["action_classifier"].parameters())
         if fusion is not None:
             models["fusion"] = fusion.to(DEVICE)
             params_enc.extend(models["fusion"].parameters())
+
         enc_lr = float(config.get("lr_enc", 1e-4))
         disc_lr = float(config.get("lr_disc", enc_lr))
-        optimizers["encoder"] = torch.optim.Adam(params_enc, lr=enc_lr, weight_decay=wd)
+        optimizers["encoder"] = torch.optim.Adam(
+            params_enc,
+            lr=enc_lr,
+            weight_decay=wd,
+        )
         optimizers["discriminator"] = torch.optim.Adam(
-            models["discriminator"].parameters(), lr=disc_lr, weight_decay=wd
+            models["discriminator"].parameters(),
+            lr=disc_lr,
+            weight_decay=wd,
         )
     else:
-        models["net"] = (   
-            SimpleMLPNet(D, 256, 256)
-        ).to(DEVICE)
-        params = list(models["net"].parameters())
+        models["net"] = SimpleMLPNet(D, 256, 256).to(DEVICE)
+        models["action_classifier"] = nn.Linear(256, num_actions).to(DEVICE)
+
+        params = list(models["net"].parameters()) + \
+                 list(models["action_classifier"].parameters())
         if fusion is not None:
             models["fusion"] = fusion.to(DEVICE)
             params.extend(models["fusion"].parameters())
+
         enc_lr = float(config.get("lr_enc", 1e-4))
-        optimizers["main"] = torch.optim.Adam(params, lr=enc_lr, weight_decay=wd)
+        optimizers["main"] = torch.optim.Adam(
+            params,
+            lr=enc_lr,
+            weight_decay=wd,
+        )
 
     # -------------------------------
-    # 損失関数とminer
+    # 損失関数と miner
     # -------------------------------
     loss_fn, miner = get_loss_fn_and_miner(
         str(config["loss_type"]),
@@ -362,7 +421,8 @@ def train_model(
         run_name = run_name_override
     else:
         run_name = (
-            f"trial_{trial.number}_{config['train_mode']}_{config['loss_type']}_adv{config['adversarial']}_pool{config.get('pooling', True)}"
+            f"trial_{trial.number}_{config['train_mode']}_{config['loss_type']}"
+            f"_adv{config['adversarial']}_pool{config.get('pooling', True)}"
             + (f"_{config['flow_preprocessing']}" if config.get("train_mode") in ["flow", "gated"] else "")
         )
 
@@ -380,17 +440,23 @@ def train_model(
         batch_losses: List[float] = []
         disc_losses: List[float] = []
         disc_accs: List[float] = []
-        alpha_parts: List[np.ndarray] = []  # ← 追加: alphaを格納するリスト
+        cls_losses: List[float] = []
+        alpha_parts: List[np.ndarray] = []
 
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1:03d}"):
-            loss_val, alpha_np, disc_loss_val, disc_acc_val = train_step(models, batch, loss_fn, miner, optimizers, config, le_sp)
+            loss_val, alpha_np, disc_loss_val, disc_acc_val, cls_loss_val = train_step(
+                models, batch, loss_fn, miner, optimizers, config, le_sp
+            )
             batch_losses.append(loss_val)
+
             if alpha_np is not None:
                 alpha_parts.append(alpha_np)
             if disc_loss_val is not None:
                 disc_losses.append(disc_loss_val)
             if disc_acc_val is not None:
                 disc_accs.append(disc_acc_val)
+            if cls_loss_val is not None:
+                cls_losses.append(cls_loss_val)
 
         # GatedFusion α 保存
         save_alpha_epoch(alpha_parts, epoch, config, trial, results_root, is_ablation)
@@ -407,11 +473,12 @@ def train_model(
             log_dict["disc/loss"] = float(np.mean(disc_losses))
         if disc_accs:
             log_dict["disc/acc"] = float(np.mean(disc_accs))
+        if cls_losses:
+            log_dict["cls/loss"] = float(np.mean(cls_losses))
 
         wandb.log(log_dict)
 
-
-        # ベストモデル保存とearly stopping
+        # ベストモデル保存と early stopping
         if val_loss < best_val:
             best_val, best_epoch, no_improve = val_loss, epoch + 1, 0
             torch.save(models.state_dict(), save_path)

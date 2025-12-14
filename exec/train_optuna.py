@@ -139,47 +139,54 @@ def objective(
         "experiment_name": yaml_cfg.get("experiment_name", "study"),  # wandb上の実験グループ名
     }
 
+    run_name = (
+            f"trial_{trial.number}_{config['train_mode']}_{config['loss_type']}_adv{config['adversarial']}_pool{config.get('pooling', True)}"
+            + (f"_{config['flow_preprocessing']}" if config.get("train_mode") in ["flow", "gated"] else "")
+        )
+
+    wandb.init(project=config["project_name"], config=config, name=run_name, reinit=True)
+
     trial.set_user_attr("train_mode", config["train_mode"])
     trial.set_user_attr("adversarial", config["adversarial"])
     trial.set_user_attr("loss_type", config["loss_type"])
 
     seed = 42
     val_scores = []
+    fold_logs = []
 
     # ======================================
     # Cross-Validation ありの場合
     # ======================================
     if use_cv:
-        print(f"\n🔄 Cross-Validation ENABLED ({n_splits}-fold)")
         kfold = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
         for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(full_df, full_df["species"])):
-            print(f"\n🧩 Fold {fold_idx + 1}/{n_splits} 開始")
-
-            train_df = full_df.iloc[train_idx].reset_index(drop=True)
-            val_df = full_df.iloc[val_idx].reset_index(drop=True)
-
-            score = _run_one_fold(
-                trial, config, train_df, val_df, le_act, le_sp, results_root, fold_idx
+            fold_score, fold_info = _run_one_fold(
+                trial, config,
+                train_df=full_df.iloc[train_idx].reset_index(drop=True),
+                val_df=full_df.iloc[val_idx].reset_index(drop=True),
+                le_act=le_act, le_sp=le_sp,
+                results_root=results_root,
+                fold=fold_idx,
             )
-            if score is not None:
-                val_scores.append(score)
+            if fold_score is not None:
+                val_scores.append(fold_score)
+                fold_logs.append(fold_info)
 
     # ======================================
     # Cross-Validation OFF（単一 split）
     # ======================================
     else:
-        print("\n🚫 Cross-Validation DISABLED → 1回だけ train/val split")
+        train_df, val_df = train_test_split(full_df, test_size=0.2, shuffle=True, random_state=seed)
 
-        train_df, val_df = train_test_split(
-            full_df, test_size=0.2, random_state=seed, shuffle=True
+        fold_score, fold_info = _run_one_fold(
+            trial, config, train_df, val_df, le_act, le_sp,
+            results_root, fold=0
         )
+        if fold_score is not None:
+            val_scores.append(fold_score)
+            fold_logs.append(fold_info)
 
-        score = _run_one_fold(
-            trial, config, train_df, val_df, le_act, le_sp, results_root, 0
-        )
-        if score is not None:
-            val_scores.append(score)
 
     # ======================================
     # 最終スコアの計算
@@ -193,6 +200,18 @@ def objective(
 
     trial.set_user_attr("cv_scores", val_scores)
     trial.set_user_attr("cv_mean", mean_score)
+    
+    # =============================
+    # 🔥 wandb.summary にまとめて保存
+    # =============================
+    wandb.summary["trial_number"] = trial.number
+    wandb.summary["lambda_adv"] = float(config.get("lambda_adv", 0.0))
+    wandb.summary["lambda_cls"] = float(config.get("lambda_cls", 0.0))
+    wandb.summary["cv_scores"] = val_scores
+    wandb.summary["cv_mean"] = mean_score
+    wandb.summary["fold_logs"] = fold_logs
+
+    wandb.finish()
 
     return mean_score
 
@@ -218,18 +237,22 @@ def _run_one_fold(
     results_root,
     fold
 ):
-    run_name = run_name = (
-            f"trial_{trial.number}_{config['train_mode']}_{config['loss_type']}_adv{config['adversarial']}_pool{config.get('pooling', True)}"
-            + (f"_{config['flow_preprocessing']}" if config.get("train_mode") in ["flow", "gated"] else "")
-        )
-
-    wandb.init(project=config["project_name"], config=config, name=run_name, reinit=True)
 
     try:
         train_loader, val_loader, fusion_model = build_datasets_and_loaders(config, train_df, val_df, le_act, le_sp)
         check_dataset_shapes(train_loader, config["train_mode"])
 
-        best_val_score = train_model(config, train_loader, val_loader, le_sp, trial, study_name="optuna", fusion=fusion_model, results_root=results_root)
+        best_val_score = best_val_score = train_model(
+            config=config,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            le_sp=le_sp,
+            le_act=le_act,
+            trial=trial,
+            study_name="optuna",
+            fusion=fusion_model,
+            results_root=results_root,
+        )
 
         model_path = trial.user_attrs.get("model_save_path")
         if not model_path:
@@ -274,5 +297,4 @@ def _run_one_fold(
         return None
 
     finally:
-        wandb.finish()
         cleanup_memory()
