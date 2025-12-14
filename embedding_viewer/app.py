@@ -127,7 +127,6 @@ PAGE = """
 </html>
 """
 
-
 # ======================================================
 # Embedding Loader
 # ======================================================
@@ -145,16 +144,36 @@ def load_embeddings(path: Path):
         np.array(sources)
     )
 
-
 # ======================================================
-# Plot Helper
+# Plot Helper（train/test を形状で区別）
 # ======================================================
-def plot_embedding(X2d, labels):
+def plot_embedding(X2d, labels, sources):
     plt.figure(figsize=(8, 6))
-    uniq = np.unique(labels)
-    for lab in uniq:
-        m = labels == lab
-        plt.scatter(X2d[m, 0], X2d[m, 1], s=12, alpha=0.8, label=str(lab))
+
+    uniq_labels = np.unique(labels)
+
+    for lab in uniq_labels:
+        mask = (labels == lab)
+
+        mask_train = mask & (sources == "train")
+        mask_test = mask & (sources == "test")
+
+        # train: ○
+        if np.any(mask_train):
+            plt.scatter(
+                X2d[mask_train, 0], X2d[mask_train, 1],
+                s=20, alpha=0.8, marker="o",
+                label=f"{lab} (train)"
+            )
+
+        # test: △
+        if np.any(mask_test):
+            plt.scatter(
+                X2d[mask_test, 0], X2d[mask_test, 1],
+                s=35, alpha=0.9, marker="^",
+                label=f"{lab} (test)"
+            )
+
     plt.legend(fontsize=7)
     plt.xticks([]); plt.yticks([])
 
@@ -164,7 +183,6 @@ def plot_embedding(X2d, labels):
 
     import base64
     return base64.b64encode(buf.getvalue()).decode()
-
 
 # ======================================================
 # Main UI
@@ -176,7 +194,8 @@ def index():
     selected_date = request.args.get("date", dates[-1] if dates else None)
 
     # Step 2: run フォルダ
-    runs, selected_run = [], None
+    runs = []
+    selected_run = None
     if selected_date:
         date_dir = TRAIN_RESULT_ROOT / selected_date
         runs = sorted([p.name for p in date_dir.iterdir() if p.is_dir() and p.name.startswith("run_")])
@@ -208,7 +227,6 @@ def index():
         summary=None
     )
 
-
 # ======================================================
 # Plot Route
 # ======================================================
@@ -228,15 +246,17 @@ def plot():
     if view_mode in ("test", "all"):
         paths.append(eval_dir / f"{model}_test.jsonl")
 
-    vecs_all, labels_all = [], []
+    vecs_all, labels_all, sources_all = [], [], []
 
     for p in paths:
         X, labels, sources = load_embeddings(p)
         vecs_all.append(X)
         labels_all.append(labels)
+        sources_all.append(sources)
 
     X = np.concatenate(vecs_all, axis=0)
     labels = np.concatenate(labels_all, axis=0)
+    sources = np.concatenate(sources_all, axis=0)
 
     # t-SNE or UMAP
     method = request.form.get("method")
@@ -262,7 +282,7 @@ def plot():
         X2d = reducer.fit_transform(X)
         summary = f"UMAP / samples={len(X)}"
 
-    image_data = plot_embedding(X2d, labels)
+    image_data = plot_embedding(X2d, labels, sources)
 
     # 再表示に必要なデータ
     dates = sorted([p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir()])
