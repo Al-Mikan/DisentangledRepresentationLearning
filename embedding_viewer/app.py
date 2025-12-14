@@ -54,16 +54,16 @@ PAGE = """
   <br>
   {% endif %}
 
-  <!-- JSONLを選択 -->
-  {% if files %}
+  <!-- モデル名 -->
+  {% if model_names %}
   <form action="/plot" method="post">
     <input type="hidden" name="date" value="{{selected_date}}">
     <input type="hidden" name="run" value="{{selected_run}}">
 
-    <label>Embedding File (JSONL)</label><br>
-    <select name="filename">
-      {% for f in files %}
-        <option value="{{f}}">{{f}}</option>
+    <label>Model</label><br>
+    <select name="model">
+      {% for m in model_names %}
+        <option value="{{m}}">{{m}}</option>
       {% endfor %}
     </select>
 
@@ -72,9 +72,9 @@ PAGE = """
     <!-- train/test/all -->
     <label>表示モード</label><br>
     <select name="view_mode">
-      <option value="all">train + test</option>
-      <option value="test">test only</option>
+      <option value="all">全体 (train+test)</option>
       <option value="train">train only</option>
+      <option value="test">test only</option>
     </select>
 
     <br><br>
@@ -127,6 +127,7 @@ PAGE = """
 </html>
 """
 
+
 # ======================================================
 # Embedding Loader
 # ======================================================
@@ -143,6 +144,7 @@ def load_embeddings(path: Path):
         np.array(labels),
         np.array(sources)
     )
+
 
 # ======================================================
 # Plot Helper
@@ -163,25 +165,37 @@ def plot_embedding(X2d, labels):
     import base64
     return base64.b64encode(buf.getvalue()).decode()
 
+
 # ======================================================
 # Main UI
 # ======================================================
 @app.route("/", methods=["GET"])
 def index():
+    # Step 1: 日付フォルダ
     dates = sorted([p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir()])
     selected_date = request.args.get("date", dates[-1] if dates else None)
 
+    # Step 2: run フォルダ
     runs, selected_run = [], None
     if selected_date:
         date_dir = TRAIN_RESULT_ROOT / selected_date
         runs = sorted([p.name for p in date_dir.iterdir() if p.is_dir() and p.name.startswith("run_")])
         selected_run = request.args.get("run", runs[0] if runs else None)
 
-    files = []
+    # Step 3: モデル名を抽出（train/test 共通部分）
+    model_names = []
     if selected_date and selected_run:
         eval_dir = TRAIN_RESULT_ROOT / selected_date / selected_run / "eval"
         if eval_dir.exists():
-            files = sorted([p.name for p in eval_dir.glob("*.jsonl")])
+            jsonl_files = list(eval_dir.glob("*.jsonl"))
+            names = set()
+            for p in jsonl_files:
+                stem = p.stem
+                if stem.endswith("_train"):
+                    names.add(stem[:-6])
+                elif stem.endswith("_test"):
+                    names.add(stem[:-5])
+            model_names = sorted(list(names))
 
     return render_template_string(
         PAGE,
@@ -189,10 +203,11 @@ def index():
         selected_date=selected_date,
         runs=runs,
         selected_run=selected_run,
-        files=files,
+        model_names=model_names,
         image_data=None,
         summary=None
     )
+
 
 # ======================================================
 # Plot Route
@@ -201,51 +216,47 @@ def index():
 def plot():
     date = request.form.get("date")
     run = request.form.get("run")
-    filename = request.form.get("filename")
+    model = request.form.get("model")
     view_mode = request.form.get("view_mode")
 
-    file_path = TRAIN_RESULT_ROOT / date / run / "eval" / filename
-    X, labels, sources = load_embeddings(file_path)
+    eval_dir = TRAIN_RESULT_ROOT / date / run / "eval"
 
-    # view filter
-    if view_mode == "test":
-        mask = (sources == "test")
-    elif view_mode == "train":
-        mask = (sources == "train")
-    else:
-        mask = np.ones(len(X), dtype=bool)
+    # 必要に応じて読み込むファイルを決める
+    paths = []
+    if view_mode in ("train", "all"):
+        paths.append(eval_dir / f"{model}_train.jsonl")
+    if view_mode in ("test", "all"):
+        paths.append(eval_dir / f"{model}_test.jsonl")
 
-    X = X[mask]
-    labels = labels[mask]
+    vecs_all, labels_all = [], []
 
-    # tSNE or UMAP
+    for p in paths:
+        X, labels, sources = load_embeddings(p)
+        vecs_all.append(X)
+        labels_all.append(labels)
+
+    X = np.concatenate(vecs_all, axis=0)
+    labels = np.concatenate(labels_all, axis=0)
+
+    # t-SNE or UMAP
     method = request.form.get("method")
 
     if method == "tsne":
-        perplexity = int(request.form.get("perplexity"))
-        learning_rate = float(request.form.get("learning_rate"))
-        early_exaggeration = float(request.form.get("early_exaggeration"))
-        init = request.form.get("init")
-        angle = float(request.form.get("angle"))
-
         reducer = TSNE(
             n_components=2,
-            perplexity=perplexity,
-            learning_rate=learning_rate,
-            early_exaggeration=early_exaggeration,
-            init=init,
-            angle=angle,
+            perplexity=int(request.form.get("perplexity")),
+            learning_rate=float(request.form.get("learning_rate")),
+            early_exaggeration=float(request.form.get("early_exaggeration")),
+            init=request.form.get("init"),
+            angle=float(request.form.get("angle")),
         )
         X2d = reducer.fit_transform(X)
         summary = f"t-SNE / samples={len(X)}"
 
     else:
-        n_neighbors = int(request.form.get("n_neighbors"))
-        min_dist = float(request.form.get("min_dist"))
-
         reducer = umap.UMAP(
-            n_neighbors=n_neighbors,
-            min_dist=min_dist,
+            n_neighbors=int(request.form.get("n_neighbors")),
+            min_dist=float(request.form.get("min_dist")),
             metric="cosine"
         )
         X2d = reducer.fit_transform(X)
@@ -253,10 +264,13 @@ def plot():
 
     image_data = plot_embedding(X2d, labels)
 
-    # 再選択の保持
+    # 再表示に必要なデータ
     dates = sorted([p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir()])
     runs = sorted([p.name for p in (TRAIN_RESULT_ROOT / date).iterdir() if p.is_dir()])
-    files = sorted([p.name for p in (TRAIN_RESULT_ROOT / date / run / "eval").glob("*.jsonl")])
+    model_names = sorted([
+        p.stem.replace("_train", "").replace("_test", "")
+        for p in (TRAIN_RESULT_ROOT / date / run / "eval").glob("*.jsonl")
+    ])
 
     return render_template_string(
         PAGE,
@@ -264,7 +278,7 @@ def plot():
         selected_date=date,
         runs=runs,
         selected_run=run,
-        files=files,
+        model_names=model_names,
         image_data=image_data,
         summary=summary
     )
