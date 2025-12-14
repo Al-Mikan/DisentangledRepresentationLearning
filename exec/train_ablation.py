@@ -137,6 +137,11 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
         local_config = json.loads(json.dumps(merged_config))
         local_config[key] = value
 
+        # === train_mode ablation のときだけ adversarial を強制 off ===
+        if key == "train_mode":
+            print("⚙️ Force adversarial = off (train_mode ablation)")
+            local_config["adversarial"] = "off"
+
         # --- list は baseline を優先 (固定化)---
         for k, v in list(local_config.items()):
             if isinstance(v, list):
@@ -145,12 +150,12 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
                 else:
                     local_config[k] = v[0]
 
-        # === Config をログに保存 ===
+        # === Config を保存 ===
         cfg_log = run_dir / "logs" / f"trial_{idx:03d}_{key}_{value}_config.json"
         save_json(cfg_log, local_config)
         print(f"📝 Saved config → {cfg_log}")
 
-        # === 出力ディレクトリ ===
+        # === 出力フォルダ ===
         ablation_dir = run_dir / "ablation" / f"{key}" / str(value)
         ablation_dir.mkdir(parents=True, exist_ok=True)
 
@@ -199,6 +204,7 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
 
         print(f"✅ Completed ablation {key}={value} → score={score:.4f}")
         return score
+
 
     # ============================================================
     # 全 Trial 実行
