@@ -161,7 +161,7 @@ def objective(
         kfold = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
         for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(full_df, full_df["species"])):
-            fold_score, fold_info = _run_one_fold(
+            fold_score = _run_one_fold(
                 trial, config,
                 train_df=full_df.iloc[train_idx].reset_index(drop=True),
                 val_df=full_df.iloc[val_idx].reset_index(drop=True),
@@ -171,7 +171,6 @@ def objective(
             )
             if fold_score is not None:
                 val_scores.append(fold_score)
-                fold_logs.append(fold_info)
 
     # ======================================
     # Cross-Validation OFF（単一 split）
@@ -179,13 +178,12 @@ def objective(
     else:
         train_df, val_df = train_test_split(full_df, test_size=0.2, shuffle=True, random_state=seed)
 
-        fold_score, fold_info = _run_one_fold(
+        fold_score = _run_one_fold(
             trial, config, train_df, val_df, le_act, le_sp,
             results_root, fold=0
         )
         if fold_score is not None:
             val_scores.append(fold_score)
-            fold_logs.append(fold_info)
 
 
     # ======================================
