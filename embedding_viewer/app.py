@@ -12,12 +12,12 @@ import umap
 app = Flask(__name__)
 
 # ======================================================
-# 設定：train_result の位置をここだけ変えれば良い
+# 設定：train_result の位置
 # ======================================================
 TRAIN_RESULT_ROOT = Path("/home/asel/Documents/labo/DisentangledRepresentationLearning/train_result")
 
 # ======================================================
-# HTML TEMPLATE（パラメータ保持 & 注釈付き）
+# HTML テンプレート
 # ======================================================
 PAGE = """
 <!doctype html>
@@ -25,6 +25,25 @@ PAGE = """
 <head>
   <meta charset="utf-8" />
   <title>Embedding Viewer</title>
+
+  <script>
+    function toggleParams() {
+      const m = document.getElementById("method_select").value;
+      document.getElementById("tsne_params").style.display = (m === "tsne") ? "block" : "none";
+      document.getElementById("umap_params").style.display = (m === "umap") ? "block" : "none";
+    }
+
+    function toggleTitleBox() {
+      const useTitle = document.getElementById("use_title").checked;
+      document.getElementById("title_box").style.display = useTitle ? "block" : "none";
+    }
+
+    window.onload = function() {
+      toggleParams();
+      toggleTitleBox();
+    };
+  </script>
+
 </head>
 
 <body style="font-family:sans-serif; margin:24px;">
@@ -71,10 +90,22 @@ PAGE = """
 
   <br><br>
 
-  <!-- タイトル -->
-  <label>画像タイトル（PNGファイル名にも使用）</label><br>
-  <input type="text" name="title" value="{{title}}" style="width:300px;" placeholder="例：Gated Normal / epoch27">
-  <small style="color:gray;">※ 空欄ならタイトルなし & embedding.png</small>
+  <!-- タイトル ON/OFF -->
+  <label>
+    <input type="checkbox" id="use_title" name="use_title"
+      {% if use_title %}checked{% endif %}
+      onclick="toggleTitleBox()"
+    >
+    タイトルを付ける
+  </label>
+
+  <!-- タイトル入力欄 -->
+  <div id="title_box" style="margin-top:8px; display:none;">
+    <input type="text" name="title" value="{{title}}" style="width:300px;"
+      placeholder="例：Gated / epoch27">
+    <small style="color:gray;">PNGファイル名にも使用されます</small>
+  </div>
+
   <br><br>
 
   <!-- train/test/all -->
@@ -84,49 +115,56 @@ PAGE = """
     <option value="train" {% if view_mode=='train' %}selected{% endif %}>train only</option>
     <option value="test" {% if view_mode=='test' %}selected{% endif %}>test only</option>
   </select>
-
   <br><br>
 
   <!-- Dim Reduction -->
-  <label>Method</label>
-  <select name="method">
+  <label>Method</label><br>
+  <select id="method_select" name="method" onchange="toggleParams()">
     <option value="tsne" {% if method=='tsne' %}selected{% endif %}>t-SNE</option>
     <option value="umap" {% if method=='umap' %}selected{% endif %}>UMAP</option>
   </select>
 
-  <h3>t-SNE Parameters</h3>
+  <br><br>
 
-  <label>Perplexity</label><br>
-  <input type="number" name="perplexity" value="{{perplexity}}">
-  <small style="color:gray;">※ クラスタの局所密度推定（5～50）</small><br><br>
+  <!-- t-SNE パラメータ -->
+  <div id="tsne_params" style="display:none; border:1px solid #ddd; padding:12px; margin-bottom:12px;">
+    <h3>t-SNE Parameters</h3>
 
-  <label>Learning Rate</label><br>
-  <input type="number" name="learning_rate" value="{{learning_rate}}">
-  <small style="color:gray;">※ 大きいと暴れる・小さいと収束しにくい</small><br><br>
+    <label>Perplexity</label><br>
+    <input type="number" name="perplexity" value="{{perplexity}}">
+    <small style="color:gray;">クラスタの局所密度（5〜50）</small><br><br>
 
-  <label>Early Exaggeration</label><br>
-  <input type="number" name="early_exaggeration" value="{{early_exaggeration}}">
-  <small style="color:gray;">※ 初期配置の分離度</small><br><br>
+    <label>Learning Rate</label><br>
+    <input type="number" name="learning_rate" value="{{learning_rate}}">
+    <small style="color:gray;">大きいと暴れる・小さいと収束しにくい</small><br><br>
 
-  <label>Init</label>
-  <select name="init">
-    <option value="pca" {% if init=='pca' %}selected{% endif %}>pca</option>
-    <option value="random" {% if init=='random' %}selected{% endif %}>random</option>
-  </select>
-  <small style="color:gray;">※ pcaの方が安定</small><br><br>
+    <label>Early Exaggeration</label><br>
+    <input type="number" name="early_exaggeration" value="{{early_exaggeration}}">
+    <small style="color:gray;">初期配置の分離度</small><br><br>
 
-  <label>Angle (0.0–1.0)</label><br>
-  <input type="number" step="0.01" name="angle" value="{{angle}}">
-  <small style="color:gray;">※ 0 に近いほど精度↑ / 1 に近いほど高速</small><br><br>
+    <label>Init</label><br>
+    <select name="init">
+      <option value="pca" {% if init=='pca' %}selected{% endif %}>pca</option>
+      <option value="random" {% if init=='random' %}selected{% endif %}>random</option>
+    </select><br><br>
 
-  <h3>UMAP Parameters</h3>
-  <label>n_neighbors</label><br>
-  <input type="number" name="n_neighbors" value="{{n_neighbors}}">
-  <small style="color:gray;">※ 局所 vs 大域のバランス (小=細かい)</small><br><br>
+    <label>Angle (0.0–1.0)</label><br>
+    <input type="number" step="0.01" name="angle" value="{{angle}}">
+    <small style="color:gray;">0: 正確 / 1: 高速</small>
+  </div>
 
-  <label>min_dist</label><br>
-  <input type="number" step="0.01" name="min_dist" value="{{min_dist}}">
-  <small style="color:gray;">※ クラスタの密集度（0〜0.5）</small><br><br>
+  <!-- UMAP パラメータ -->
+  <div id="umap_params" style="display:none; border:1px solid #ddd; padding:12px;">
+    <h3>UMAP Parameters</h3>
+
+    <label>n_neighbors</label><br>
+    <input type="number" name="n_neighbors" value="{{n_neighbors}}">
+    <small style="color:gray;">大域 / 局所のバランス</small><br><br>
+
+    <label>min_dist</label><br>
+    <input type="number" step="0.01" name="min_dist" value="{{min_dist}}">
+    <small style="color:gray;">クラスタの密集度（0〜0.5 推奨）</small><br><br>
+  </div>
 
   <br>
   <button type="submit">描画</button>
@@ -137,10 +175,9 @@ PAGE = """
 <hr>
 <h2>結果</h2>
 
-<img src="data:image/png;base64,{{ image_data }}" />
+<img src="data:image/png;base64,{{image_data}}" />
 
 <br><br>
-
 <a download="{{png_filename}}" href="data:image/png;base64,{{image_data}}">
   <button>🖼 PNG をダウンロード</button>
 </a>
@@ -173,7 +210,7 @@ def load_embeddings(path: Path):
 # Plot Helper（train/test を marker で区別）
 # ======================================================
 def plot_embedding(X2d, labels, sources, title):
-    plt.figure(figsize=(8,6))
+    plt.figure(figsize=(8, 8))   # ← 正方形
 
     if title:
         plt.title(title, fontsize=16)
@@ -187,12 +224,10 @@ def plot_embedding(X2d, labels, sources, title):
 
         if np.any(mask_train):
             plt.scatter(X2d[mask_train,0], X2d[mask_train,1],
-                        marker="o", s=20, alpha=0.8,
-                        label=f"{lab} (train)")
+                        marker="o", s=20, alpha=0.8, label=f"{lab} (train)")
         if np.any(mask_test):
             plt.scatter(X2d[mask_test,0], X2d[mask_test,1],
-                        marker="^", s=35, alpha=0.9,
-                        label=f"{lab} (test)")
+                        marker="^", s=35, alpha=0.9, label=f"{lab} (test)")
 
     plt.legend(fontsize=8)
     plt.xticks([]); plt.yticks([])
@@ -208,11 +243,9 @@ def plot_embedding(X2d, labels, sources, title):
 # ======================================================
 @app.route("/", methods=["GET"])
 def index():
-    # 日付
     dates = sorted([p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir()])
     selected_date = request.args.get("date", dates[-1] if dates else None)
 
-    # run
     runs = []
     selected_run = None
     if selected_date:
@@ -220,19 +253,18 @@ def index():
         runs = sorted([p.name for p in date_dir.iterdir() if p.is_dir() and p.name.startswith("run_")])
         selected_run = request.args.get("run", runs[0] if runs else None)
 
-    # モデル名
     model_names = []
     if selected_date and selected_run:
         eval_dir = TRAIN_RESULT_ROOT / selected_date / selected_run / "eval"
         if eval_dir.exists():
             names = set()
             for p in eval_dir.glob("*.jsonl"):
-                stem = p.stem
-                if stem.endswith("_train"):
-                    names.add(stem[:-6])
-                elif stem.endswith("_test"):
-                    names.add(stem[:-5])
-            model_names = sorted(names)
+                s = p.stem
+                if s.endswith("_train"):
+                    names.add(s[:-6])
+                elif s.endswith("_test"):
+                    names.add(s[:-5])
+            model_names = sorted(list(names))
 
     return render_template_string(
         PAGE,
@@ -242,17 +274,20 @@ def index():
         selected_run=selected_run,
         model_names=model_names,
 
-        # 初期値（描画後に保持される）
         selected_model=None,
         view_mode="all",
         method="tsne",
+
         perplexity=30,
         learning_rate=200,
         early_exaggeration=12,
         init="pca",
         angle=0.5,
+
         n_neighbors=15,
         min_dist=0.1,
+
+        use_title=False,
         title="",
         image_data=None,
         summary=None,
@@ -268,20 +303,24 @@ def plot():
     run = request.form.get("run")
     model = request.form.get("model")
     view_mode = request.form.get("view_mode")
-    title = request.form.get("title")
 
     method = request.form.get("method")
+
+    # タイトル ON/OFF
+    use_title = ("use_title" in request.form)
+    title = request.form.get("title") if use_title else ""
+
     perplexity = int(request.form.get("perplexity"))
     learning_rate = float(request.form.get("learning_rate"))
     early_exaggeration = float(request.form.get("early_exaggeration"))
     init = request.form.get("init")
     angle = float(request.form.get("angle"))
+
     n_neighbors = int(request.form.get("n_neighbors"))
     min_dist = float(request.form.get("min_dist"))
 
     eval_dir = TRAIN_RESULT_ROOT / date / run / "eval"
 
-    # train / test jsonl
     paths = []
     if view_mode in ("train", "all"):
         paths.append(eval_dir / f"{model}_train.jsonl")
@@ -299,9 +338,6 @@ def plot():
     labels = np.concatenate(labels_all, axis=0)
     sources = np.concatenate(sources_all, axis=0)
 
-    # =======================================
-    # t-SNE / UMAP 実行
-    # =======================================
     if method == "tsne":
         reducer = TSNE(
             n_components=2,
@@ -323,15 +359,9 @@ def plot():
         X2d = reducer.fit_transform(X)
         summary = f"UMAP (samples={len(X)})"
 
-    # =======================================
-    # 描画 + base64
-    # =======================================
     image_data = plot_embedding(X2d, labels, sources, title)
-
-    # 保存ファイル名
     png_filename = (title + ".png") if title else "embedding.png"
 
-    # UI 再描画のための情報を復元
     dates = sorted([p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir()])
     runs = sorted([p.name for p in (TRAIN_RESULT_ROOT / date).iterdir() if p.is_dir()])
     model_names = sorted([
@@ -350,14 +380,19 @@ def plot():
         selected_model=model,
         view_mode=view_mode,
         method=method,
+
         perplexity=perplexity,
         learning_rate=learning_rate,
         early_exaggeration=early_exaggeration,
         init=init,
         angle=angle,
+
         n_neighbors=n_neighbors,
         min_dist=min_dist,
+
+        use_title=use_title,
         title=title,
+
         image_data=image_data,
         summary=summary,
         png_filename=png_filename
