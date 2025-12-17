@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import gc
 from triplet_losses import grl
 import numpy as np
-import pandas as pd
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -22,8 +21,8 @@ from model import (
 )
 from pytorch_metric_learning import losses, miners, distances
 import optuna
-from sklearn.model_selection import train_test_split
 import wandb
+from sklearn.metrics import matthews_corrcoef
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -46,17 +45,21 @@ def get_loss_fn_and_miner(
     loss_type: str,
     temperature: float = 0.07,
     triplet_margin: float = 0.1,
-) -> Tuple[nn.Module, Optional[nn.Module]]:
-    miner: Optional[nn.Module] = None
+):
+    miner = None
     if loss_type == "supcon":
         loss_fn = losses.SupConLoss(temperature=temperature)
     elif loss_type == "cosine":
-        distance = distances.CosineSimilarity()
-        loss_fn = losses.TripletMarginLoss(distance=distance, margin=triplet_margin)
-        miner = miners.TripletMarginMiner(margin=triplet_margin, distance=distance, type_of_triplets="semihard")
-    else:  # default triplet
+        dist = distances.CosineSimilarity()
+        loss_fn = losses.TripletMarginLoss(distance=dist, margin=triplet_margin)
+        miner = miners.TripletMarginMiner(
+            margin=triplet_margin, distance=dist, type_of_triplets="semihard"
+        )
+    else:
         loss_fn = losses.TripletMarginLoss(margin=triplet_margin)
-        miner = miners.TripletMarginMiner(margin=triplet_margin, type_of_triplets="semihard")
+        miner = miners.TripletMarginMiner(
+            margin=triplet_margin, type_of_triplets="semihard"
+        )
     return loss_fn, miner
 
 
@@ -92,8 +95,7 @@ def build_datasets_and_loaders(
                                         centered=centered, pooling=pooling)
 
         # X3D_dim=2048, MAE_dim=768 → config["fused_dim"]
-        fusion_model = GatedFusion(2048, 768, int(config["fused_dim"]))
-        fusion_model = fusion_model.to(DEVICE)
+        fusion_model = GatedFusion(2048, 768, int(config["fused_dim"])).to(DEVICE)
 
     else:
         raise ValueError(f"Unknown train_mode: {train_mode}")
@@ -123,8 +125,7 @@ def build_datasets_and_loaders(
 def _encode_batch(models: nn.ModuleDict, batch, config: Dict[str, Any]):
     if config["train_mode"] == "gated":
         x3d, vmae, a, s = batch
-        x3d = x3d.to(DEVICE)
-        vmae = vmae.to(DEVICE)
+        x3d, vmae = x3d.to(DEVICE), vmae.to(DEVICE)
         a = a.to(DEVICE, dtype=torch.long)
         s = s.to(DEVICE, dtype=torch.long)
         
@@ -166,10 +167,11 @@ def train_step(
     optimizers: Dict[str, torch.optim.Optimizer],
     config: Dict[str, Any],
     le_sp: LabelEncoder,
-) -> Tuple[float, Optional[np.ndarray], Optional[float], Optional[float], Optional[float]]:
+    lambda_p: float = 1.0,
+) -> Tuple[float, Optional[np.ndarray], Optional[float], Optional[float], Optional[float], Optional[float]]:
     """
     戻り値:
-        total_loss, alpha_np, disc_loss_val, disc_acc_val, cls_loss_val
+        total_loss, alpha_np, disc_loss_val, disc_acc_val, cls_loss_val, disc_mcc_val
     """
     for m in models.values():
         m.train()
@@ -181,21 +183,34 @@ def train_step(
     disc_loss_val: Optional[float] = None
     disc_acc_val: Optional[float] = None
     cls_loss_val: Optional[float] = None
+    disc_mcc_val: Optional[float] = None
 
     # --- Discriminator の更新 ---
     if adv_enabled:
         discriminator = models["discriminator"]
         opt_disc = optimizers["discriminator"]
+
+        all_preds = []
+        all_targets = []
+
         for _ in range(int(config.get("disc_steps_per_batch", 1))):
             opt_disc.zero_grad()
             logits_disc = discriminator(a_vec.detach())
             ce = nn.CrossEntropyLoss()(logits_disc, s)
+
             pred_disc = logits_disc.argmax(dim=1)
-            correct = (pred_disc == s).float().mean().item()
-            disc_loss_val = float(ce.item())
-            disc_acc_val = float(correct)
+            all_preds.append(pred_disc.detach().cpu().numpy())
+            all_targets.append(s.detach().cpu().numpy())
+
             ce.backward()
             opt_disc.step()
+
+        y_pred = np.concatenate(all_preds)
+        y_true = np.concatenate(all_targets)
+
+        disc_mcc_val = float(matthews_corrcoef(y_true, y_pred))
+        disc_loss_val = float(ce.item())
+        disc_acc_val = float((pred_disc == s).float().mean().item())
 
     # --- encoder(main) の更新 ---
     main_opt = optimizers.get("encoder") or optimizers.get("main")
@@ -225,18 +240,21 @@ def train_step(
     # --- 種の敵対的学習 ---
     if adv_enabled:
         logits = models["discriminator"](a_vec)
+        # config['lambda_adv']: ユーザーが指定した最大強度 (例: 0.1)
+        # lambda_p: 学習進捗に応じたスケジュール係数 (0.0 -> 1.0)
+        # これらを掛けることで、0.0 -> 0.1 へと推移する
+        current_lambda = float(config["lambda_adv"]) * lambda_p
         if adv_mode == "kl":
             logp = nn.functional.log_softmax(logits, dim=1)
             uniform = torch.full_like(logits, 1.0 / len(le_sp.classes_))
             adv_loss = nn.KLDivLoss(reduction="batchmean")(logp, uniform)
-            total = total + float(config["lambda_adv"]) * adv_loss
+            total = total + current_lambda * adv_loss
 
         elif adv_mode == "gan":
             ce_enc = nn.CrossEntropyLoss()(logits, s)
-            total = total - float(config["lambda_adv"]) * ce_enc
-
+            total = total - current_lambda * ce_enc
         elif adv_mode == "dann":
-            reversed_vec = grl(a_vec, float(config["lambda_adv"]))
+            reversed_vec = grl(a_vec, current_lambda)
             logits_dann = models["discriminator"](reversed_vec)
             adv_loss = nn.CrossEntropyLoss()(logits_dann, s)
             total = total + adv_loss
@@ -249,7 +267,14 @@ def train_step(
     main_opt.step()
 
     alpha_np = alpha.detach().cpu().numpy() if alpha is not None else None
-    return float(total.item()), alpha_np, disc_loss_val, disc_acc_val, cls_loss_val
+    return (
+    float(total.item()),
+    alpha_np,
+    disc_loss_val,
+    disc_acc_val,
+    cls_loss_val,
+    disc_mcc_val,
+)
 
 
 
@@ -314,6 +339,14 @@ def evaluate_model(
 
     return float(np.mean(losses_acc)) if losses_acc else float("inf")
 
+def get_dann_lambda(p: float, gamma: float = 10.0) -> float:
+    """
+    論文 (Ganin et al., 2016) に基づく λ のスケジューリング
+    p: 学習の進捗 (0.0 -> 1.0)
+    gamma: スケジュールのカーブ形状 (論文では10)
+    return: 0.0 -> 1.0 に変化する係数
+    """
+    return 2.0 / (1.0 + np.exp(-gamma * p)) - 1.0
 
 def train_model(
     config: Dict[str, Any],
@@ -436,16 +469,29 @@ def train_model(
     no_improve = 0
     max_epochs = int(config.get("epochs", 500))
 
+    total_steps = max_epochs * len(train_loader)
+    current_step = 0
+
     for epoch in range(max_epochs):
         batch_losses: List[float] = []
         disc_losses: List[float] = []
         disc_accs: List[float] = []
         cls_losses: List[float] = []
+        disc_mccs: List[float] = []
         alpha_parts: List[np.ndarray] = []
 
+
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1:03d}"):
-            loss_val, alpha_np, disc_loss_val, disc_acc_val, cls_loss_val = train_step(
-                models, batch, loss_fn, miner, optimizers, config, le_sp
+
+            # ★ 現在の進捗 p (0.0 -> 1.0) を計算
+            p = float(current_step) / total_steps
+            # ★ スケジュール関数で今の lambda を取得
+            lambda_p = get_dann_lambda(p)
+            
+            wandb.log({"train/lambda_p": lambda_p, "train/progress": p}, commit=False)
+
+            loss_val, alpha_np, disc_loss_val, disc_acc_val, cls_loss_val, disc_mcc_val = train_step(
+                models, batch, loss_fn, miner, optimizers, config, le_sp, lambda_p
             )
             batch_losses.append(loss_val)
 
@@ -457,6 +503,10 @@ def train_model(
                 disc_accs.append(disc_acc_val)
             if cls_loss_val is not None:
                 cls_losses.append(cls_loss_val)
+            if disc_mcc_val is not None:
+                disc_mccs.append(disc_mcc_val)
+
+            current_step += 1
 
         # GatedFusion α 保存
         save_alpha_epoch(alpha_parts, epoch, config, trial, results_root, is_ablation)
@@ -475,6 +525,8 @@ def train_model(
             log_dict["disc/acc"] = float(np.mean(disc_accs))
         if cls_losses:
             log_dict["cls/loss"] = float(np.mean(cls_losses))
+        if disc_mccs:
+            log_dict["disc/mcc"] = float(np.mean(disc_mccs))
 
         wandb.log(log_dict)
 
@@ -581,3 +633,4 @@ def _compute_clustering_metrics(models: nn.ModuleDict, loader: DataLoader, confi
     ari = adjusted_rand_score(y, pred)
     nmi = normalized_mutual_info_score(y, pred)
     return float(ari), float(nmi), float((ari + nmi) / 2.0)
+
