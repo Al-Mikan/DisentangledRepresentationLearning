@@ -339,7 +339,7 @@ def evaluate_model(
 
     return float(np.mean(losses_acc)) if losses_acc else float("inf")
 
-def get_dann_lambda(p: float, gamma: float = 10.0) -> float:
+def get_dann_lambda(p: float, gamma: float = 5.0) -> float:
     """
     論文 (Ganin et al., 2016) に基づく λ のスケジューリング
     p: 学習の進捗 (0.0 -> 1.0)
