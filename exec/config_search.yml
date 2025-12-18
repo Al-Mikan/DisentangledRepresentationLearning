@@ -1,9 +1,9 @@
 # config_search.yaml
 # === 実験設定 ===
-project_name: animalkingdom2
+project_name: animalkingdom_split3
 experiment_name: triplet_vs_gan
 output_root: ./train_result
-datatype: animalkingdom
+datatype: animalkingdom_split
 
 # === モード設定 ===
 train_mode: [gated] # mae / flow / gated
