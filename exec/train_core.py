@@ -1,3 +1,4 @@
+from collections import defaultdict
 import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -167,12 +168,14 @@ def train_step(
     optimizers: Dict[str, torch.optim.Optimizer],
     config: Dict[str, Any],
     le_sp: LabelEncoder,
-    lambda_p: float = 1.0,
+    lambda_p: float,
 ) -> Tuple[float, Optional[np.ndarray], Optional[float], Optional[float], Optional[float], Optional[float]]:
     """
     戻り値:
         total_loss, alpha_np, disc_loss_val, disc_acc_val, cls_loss_val, disc_mcc_val
     """
+    metrics = {}
+
     for m in models.values():
         m.train()
 
@@ -180,101 +183,97 @@ def train_step(
     adv_mode = config.get("adversarial", "off")
     adv_enabled = adv_mode != "off"
 
-    disc_loss_val: Optional[float] = None
-    disc_acc_val: Optional[float] = None
-    cls_loss_val: Optional[float] = None
-    disc_mcc_val: Optional[float] = None
-
     # --- Discriminator の更新 ---
     if adv_enabled:
-        discriminator = models["discriminator"]
+        disc = models["discriminator"]
         opt_disc = optimizers["discriminator"]
 
-        all_preds = []
-        all_targets = []
+        opt_disc.zero_grad()
+        logits_disc = disc(a_vec.detach())
+        disc_loss = nn.CrossEntropyLoss()(logits_disc, s)
 
-        for _ in range(int(config.get("disc_steps_per_batch", 1))):
-            opt_disc.zero_grad()
-            logits_disc = discriminator(a_vec.detach())
-            ce = nn.CrossEntropyLoss()(logits_disc, s)
+        pred_disc = logits_disc.argmax(dim=1)
 
-            pred_disc = logits_disc.argmax(dim=1)
-            all_preds.append(pred_disc.detach().cpu().numpy())
-            all_targets.append(s.detach().cpu().numpy())
+        metrics["adv_disc/loss"] = disc_loss.item()
+        metrics["adv_disc/acc"] = (pred_disc == s).float().mean().item()
+        metrics["adv_disc/mcc"] = matthews_corrcoef(
+            s.detach().cpu().numpy(),
+            pred_disc.detach().cpu().numpy(),
+        )
 
-            ce.backward()
-            opt_disc.step()
-
-        y_pred = np.concatenate(all_preds)
-        y_true = np.concatenate(all_targets)
-
-        disc_mcc_val = float(matthews_corrcoef(y_true, y_pred))
-        disc_loss_val = float(ce.item())
-        disc_acc_val = float((pred_disc == s).float().mean().item())
+        disc_loss.backward()
+        opt_disc.step()
 
     # --- encoder(main) の更新 ---
     main_opt = optimizers.get("encoder") or optimizers.get("main")
-    if main_opt is None:
-        raise RuntimeError("Missing main optimizer")
     main_opt.zero_grad()
 
-    # metric loss
+    # ---- Triplet / SupCon loss ----
     if config["loss_type"] == "supcon":
-        main_loss = loss_fn(a_vec, labels=a)
+        triplet_loss = loss_fn(a_vec, labels=a)
     elif miner is not None:
         hard = miner(a_vec, a)
-        main_loss = loss_fn(a_vec, a, hard)
+        triplet_loss = loss_fn(a_vec, a, hard)
     else:
-        main_loss = loss_fn(a_vec, a)
+        triplet_loss = loss_fn(a_vec, a)
 
-    total = main_loss
+    metrics["triplet/loss"] = triplet_loss.item()
+    total_loss = triplet_loss
 
     # --- 行動分類 CE  ---
     lambda_cls = float(config.get("lambda_cls", 0.0))
     if lambda_cls > 0:
         logits_act = models["action_classifier"](a_vec)
         ce_act = nn.CrossEntropyLoss()(logits_act, a)
-        total = total + lambda_cls * ce_act
-        cls_loss_val = float(ce_act.item())
+        pred_act = logits_act.argmax(dim=1)
+
+        metrics["action_ce/loss"] = ce_act.item()
+        metrics["action_ce/acc"] = (pred_act == a).float().mean().item()
+        metrics["action_ce/mcc"] = matthews_corrcoef(
+            a.detach().cpu().numpy(),
+            pred_act.detach().cpu().numpy(),
+        )
+
+        total_loss = total_loss + lambda_cls * ce_act
 
     # --- 種の敵対的学習 ---
     if adv_enabled:
-        logits = models["discriminator"](a_vec)
-        # config['lambda_adv']: ユーザーが指定した最大強度 (例: 0.1)
-        # lambda_p: 学習進捗に応じたスケジュール係数 (0.0 -> 1.0)
-        # これらを掛けることで、0.0 -> 0.1 へと推移する
         current_lambda = float(config["lambda_adv"]) * lambda_p
-        if adv_mode == "kl":
-            logp = nn.functional.log_softmax(logits, dim=1)
-            uniform = torch.full_like(logits, 1.0 / len(le_sp.classes_))
-            adv_loss = nn.KLDivLoss(reduction="batchmean")(logp, uniform)
-            total = total + current_lambda * adv_loss
+        logits_enc = models["discriminator"](a_vec)
 
-        elif adv_mode == "gan":
-            ce_enc = nn.CrossEntropyLoss()(logits, s)
-            total = total - current_lambda * ce_enc
+        if adv_mode == "gan":
+            ce_enc = nn.CrossEntropyLoss()(logits_enc, s)
+            metrics["adv_enc/loss"] = ce_enc.item()
+            total_loss = total_loss - current_lambda * ce_enc
+
         elif adv_mode == "dann":
-            reversed_vec = grl(a_vec, current_lambda)
-            logits_dann = models["discriminator"](reversed_vec)
+            rev = grl(a_vec, current_lambda)
+            logits_dann = models["discriminator"](rev)
             adv_loss = nn.CrossEntropyLoss()(logits_dann, s)
-            total = total + adv_loss
+            metrics["adv_enc/loss"] = adv_loss.item()
+            total_loss = total_loss + adv_loss
 
-    total.backward()
+        elif adv_mode == "kl":
+            logp = nn.functional.log_softmax(logits_enc, dim=1)
+            uniform = torch.full_like(logits_enc, 1.0 / len(le_sp.classes_))
+            kl = nn.KLDivLoss(reduction="batchmean")(logp, uniform)
+            metrics["adv_enc/loss"] = kl.item()
+            total_loss = total_loss + current_lambda * kl
+
+    metrics["total/loss"] = total_loss.item()
+
+    # ---- backward ----
+    total_loss.backward()
+
     enc = models["action_encoder"] if "action_encoder" in models else models["net"]
-    nn.utils.clip_grad_norm_(enc.parameters(), max_norm=5.0)
+    nn.utils.clip_grad_norm_(enc.parameters(), 5.0)
     if "fusion" in models:
-        nn.utils.clip_grad_norm_(models["fusion"].parameters(), max_norm=5.0)
+        nn.utils.clip_grad_norm_(models["fusion"].parameters(), 5.0)
+
     main_opt.step()
 
     alpha_np = alpha.detach().cpu().numpy() if alpha is not None else None
-    return (
-    float(total.item()),
-    alpha_np,
-    disc_loss_val,
-    disc_acc_val,
-    cls_loss_val,
-    disc_mcc_val,
-)
+    return metrics, alpha_np
 
 
 
@@ -472,77 +471,53 @@ def train_model(
     total_steps = max_epochs * len(train_loader)
     current_step = 0
 
-    for epoch in range(max_epochs):
-        batch_losses: List[float] = []
-        disc_losses: List[float] = []
-        disc_accs: List[float] = []
-        cls_losses: List[float] = []
-        disc_mccs: List[float] = []
-        alpha_parts: List[np.ndarray] = []
 
+    for epoch in range(max_epochs):
+        epoch_metrics = defaultdict(list)
+        alpha_parts = []
 
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1:03d}"):
 
-            # ★ 現在の進捗 p (0.0 -> 1.0) を計算
-            p = float(current_step) / total_steps
-            # ★ スケジュール関数で今の lambda を取得
+            p = current_step / total_steps
             lambda_p = get_dann_lambda(p)
-            
-            wandb.log({"train/lambda_p": lambda_p, "train/progress": p}, commit=False)
 
-            loss_val, alpha_np, disc_loss_val, disc_acc_val, cls_loss_val, disc_mcc_val = train_step(
-                models, batch, loss_fn, miner, optimizers, config, le_sp, lambda_p
+            metrics, alpha_np = train_step(
+                models, batch, loss_fn, miner,
+                optimizers, config, le_sp, lambda_p
             )
-            batch_losses.append(loss_val)
+
+            for k, v in metrics.items():
+                epoch_metrics[k].append(v)
 
             if alpha_np is not None:
                 alpha_parts.append(alpha_np)
-            if disc_loss_val is not None:
-                disc_losses.append(disc_loss_val)
-            if disc_acc_val is not None:
-                disc_accs.append(disc_acc_val)
-            if cls_loss_val is not None:
-                cls_losses.append(cls_loss_val)
-            if disc_mcc_val is not None:
-                disc_mccs.append(disc_mcc_val)
 
             current_step += 1
 
-        # GatedFusion α 保存
-        save_alpha_epoch(alpha_parts, epoch, config, trial, results_root, is_ablation)
-
-        # 検証
+        # ---- validation ----
         val_loss = evaluate_model(models, val_loader, config, loss_fn, miner)
 
         log_dict = {
             "epoch": epoch + 1,
-            "train_loss": float(np.mean(batch_losses)),
-            "val_loss": float(val_loss),
+            "val/loss": val_loss,
         }
-        if disc_losses:
-            log_dict["disc/loss"] = float(np.mean(disc_losses))
-        if disc_accs:
-            log_dict["disc/acc"] = float(np.mean(disc_accs))
-        if cls_losses:
-            log_dict["cls/loss"] = float(np.mean(cls_losses))
-        if disc_mccs:
-            log_dict["disc/mcc"] = float(np.mean(disc_mccs))
+        for k, v in epoch_metrics.items():
+            log_dict[f"train/{k}"] = float(np.mean(v))
 
         wandb.log(log_dict)
 
-        # ベストモデル保存と early stopping
+        # ---- early stopping ----
         if val_loss < best_val:
-            best_val, best_epoch, no_improve = val_loss, epoch + 1, 0
+            best_val = val_loss
+            no_improve = 0
             torch.save(models.state_dict(), save_path)
             trial.set_user_attr("model_save_path", str(save_path))
-            trial.set_user_attr("best_epoch", int(best_epoch))
         else:
             no_improve += 1
             if no_improve >= EARLY_STOP_PATIENCE:
                 break
 
-    trial.set_user_attr("epochs_run", int(best_epoch))
-    return float(best_val)
+    return best_val
 
 
 def build_basename_from_config(cfg: Dict[str, Any]) -> str:
