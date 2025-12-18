@@ -272,7 +272,7 @@ def _run_one_fold(
 
         val_norm = (combined_val + 1) / 2
         train_norm = (combined_train + 1) / 2
-        score = val_norm - 0.3 * abs(val_norm - train_norm)
+        score = val_norm
 
         print(f"  Fold{fold+1} | train={combined_train:.3f}, val={combined_val:.3f}, score={score:.3f}, val_loss={best_val_score:.4f}")
         wandb.log(
