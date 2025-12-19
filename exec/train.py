@@ -11,6 +11,7 @@ except Exception:
 from sklearn.preprocessing import LabelEncoder
 from datetime import datetime
 import shutil
+import time
 
 # === 自作モジュール ===
 from utils import set_seed
@@ -153,7 +154,7 @@ def main() -> None:
     checkpoints_root = results_root / "checkpoints"
     if checkpoints_root.exists():
         shutil.rmtree(checkpoints_root, ignore_errors=True)
-        print(f"🧹 Removed checkpoints directory")
+        print("🧹 Removed checkpoints directory")
 
     # === alpha_logs 整理 ===
     alpha_tmp_root = results_root / "alpha_logs_tmp"
@@ -198,4 +199,19 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+    start_time = time.time()
     main()
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+    elapsed = time.time() - start_time
+    h = int(elapsed // 3600)
+    m = int((elapsed % 3600) // 60)
+    s = int(elapsed % 60)
+
+    print("\n⏱️ Experiment finished!")
+    print(f"   Total time: {h}h {m}m {s}s")
