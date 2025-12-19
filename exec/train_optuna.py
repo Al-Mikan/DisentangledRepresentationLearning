@@ -111,6 +111,7 @@ def objective(
         "lr_disc": float(yaml_cfg.get("lr_disc", 1e-4)), # 識別器(Discriminator)の学習率（GAN・KL使用時のみ）
         "weight_decay": float(yaml_cfg.get("weight_decay", 1e-5)),  # L2正則化（Weight Decay）の強さ
         "lambda_adv": float(yaml_cfg.get("lambda_adv", 0.1)),  # 敵対的損失の重み（adversarial有効時）
+        "lambda_cls": float(yaml_cfg.get("lambda_cls", 0.0)),  # 行動分類CE損失の重み（0で無効化）
 
         # =========================
         # 損失関数パラメータ

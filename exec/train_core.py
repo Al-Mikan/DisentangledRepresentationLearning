@@ -222,7 +222,7 @@ def train_step(
 
     # --- 行動分類 CE  ---
     lambda_cls = float(config.get("lambda_cls", 0.0))
-    if lambda_cls > 0:
+    if lambda_cls:
         logits_act = models["action_classifier"](a_vec)
         ce_act = nn.CrossEntropyLoss()(logits_act, a)
         pred_act = logits_act.argmax(dim=1)
