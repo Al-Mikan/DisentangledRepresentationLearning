@@ -229,7 +229,13 @@ def plot_embedding(X2d, labels, sources, title):
             plt.scatter(X2d[mask_test,0], X2d[mask_test,1],
                         marker="^", s=35, alpha=0.9, label=f"{lab} (test)")
 
-    plt.legend(fontsize=8)
+    plt.legend(
+    fontsize=8,
+    loc="center left",
+    bbox_to_anchor=(1.02, 0.5),
+    borderaxespad=0.0,
+    )
+
     plt.xticks([]); plt.yticks([])
 
     buf = io.BytesIO()
