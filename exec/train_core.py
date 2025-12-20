@@ -64,6 +64,16 @@ def get_loss_fn_and_miner(
     return loss_fn, miner
 
 
+def compute_species_prior(df, le_sp, device):
+    counts = df["species"].value_counts().sort_index()
+    probs = counts / counts.sum()           # pandas Series
+    prior = torch.tensor(
+        probs.values,
+        dtype=torch.float32,
+        device=device
+    )
+    return prior
+
 # --------------- Data and loaders ----------------
 
 def build_datasets_and_loaders(
@@ -169,6 +179,7 @@ def train_step(
     config: Dict[str, Any],
     le_sp: LabelEncoder,
     lambda_p: float,
+    species_prior: Optional[torch.Tensor] = None,
 ) -> Tuple[float, Optional[np.ndarray], Optional[float], Optional[float], Optional[float], Optional[float]]:
     """
     戻り値:
@@ -254,9 +265,15 @@ def train_step(
             total_loss = total_loss + adv_loss
 
         elif adv_mode == "kl":
-            logp = nn.functional.log_softmax(logits_enc, dim=1)
-            uniform = torch.full_like(logits_enc, 1.0 / len(le_sp.classes_))
-            kl = nn.KLDivLoss(reduction="batchmean")(logp, uniform)
+            # log p(s | z)
+            logp = nn.functional.log_softmax(logits_enc, dim=1)   # [B, C]
+
+            # q(s): データの種分布（prior）
+            prior = species_prior.unsqueeze(0).expand_as(logp)   # [B, C]
+
+            # KL(q || p)
+            kl = nn.KLDivLoss(reduction="batchmean")(logp, prior)
+
             metrics["adv_enc/loss"] = kl.item()
             total_loss = total_loss + current_lambda * kl
 
@@ -362,6 +379,8 @@ def train_model(
     ablation_subdir: Optional[str] = None,
 ) -> float:
     """モデル学習ループ（Optuna・アブレーション共通）"""
+
+    species_prior = compute_species_prior(train_loader.dataset.df, le_sp, DEVICE)
 
     train_mode = config.get("train_mode")
     if train_mode == "gated":
@@ -483,7 +502,7 @@ def train_model(
 
             metrics, alpha_np = train_step(
                 models, batch, loss_fn, miner,
-                optimizers, config, le_sp, lambda_p
+                optimizers, config, le_sp, lambda_p, species_prior
             )
 
             for k, v in metrics.items():
