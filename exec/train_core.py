@@ -65,13 +65,22 @@ def get_loss_fn_and_miner(
 
 
 def compute_species_prior(df, le_sp, device):
-    counts = df["species"].value_counts().sort_index()
-    probs = counts / counts.sum()           # pandas Series
-    prior = torch.tensor(
-        probs.values,
-        dtype=torch.float32,
-        device=device
-    )
+    """
+    train_df に基づく species prior を作る
+    - le_sp.classes_ の順序・次元に必ず一致
+    - train_df に存在しない種は確率 0
+    - KL(q || p) 用に安全
+    """
+    num_species = len(le_sp.classes_)
+
+    counts = df["species"].value_counts()
+
+    prior = torch.zeros(num_species, dtype=torch.float32, device=device)
+    for i in range(num_species):
+        prior[i] = counts.get(i, 0)
+
+    prior = prior / prior.sum()
+
     return prior
 
 # --------------- Data and loaders ----------------
