@@ -24,7 +24,7 @@ from pytorch_metric_learning import losses, miners, distances
 import optuna
 import wandb
 from sklearn.metrics import matthews_corrcoef
-
+import itertools
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EARLY_STOP_PATIENCE = 50
@@ -62,6 +62,66 @@ def get_loss_fn_and_miner(
             margin=triplet_margin, type_of_triplets="semihard"
         )
     return loss_fn, miner
+
+
+def compute_distance_stats_epoch(
+    embeddings: torch.Tensor,  # [N, D]
+    labels: torch.Tensor,      # [N]
+    max_per_class: int = 50,
+):
+    """
+    valid embedding から
+    intra / inter 距離の mean / var を計算
+    """
+    embeddings = embeddings.detach().cpu()
+    labels = labels.detach().cpu()
+
+    intra_dists = []
+    inter_dists = []
+
+    unique_labels = labels.unique()
+
+    # ---- intra-class ----
+    for lbl in unique_labels:
+        vecs = embeddings[labels == lbl]
+        if vecs.size(0) < 2:
+            continue
+
+        if vecs.size(0) > max_per_class:
+            vecs = vecs[torch.randperm(vecs.size(0))[:max_per_class]]
+
+        dist = torch.cdist(vecs, vecs)
+        mask = ~torch.eye(dist.size(0), dtype=torch.bool)
+        intra_dists.append(dist[mask])
+
+    # ---- inter-class ----
+    for la, lb in itertools.combinations(unique_labels, 2):
+        va = embeddings[labels == la]
+        vb = embeddings[labels == lb]
+        if va.size(0) == 0 or vb.size(0) == 0:
+            continue
+
+        if va.size(0) > max_per_class:
+            va = va[torch.randperm(va.size(0))[:max_per_class]]
+        if vb.size(0) > max_per_class:
+            vb = vb[torch.randperm(vb.size(0))[:max_per_class]]
+
+        dist = torch.cdist(va, vb)
+        inter_dists.append(dist.flatten())
+
+    if not intra_dists or not inter_dists:
+        return None
+
+    intra_all = torch.cat(intra_dists)
+    inter_all = torch.cat(inter_dists)
+
+    return {
+        "intra_mean": intra_all.mean().item(),
+        "intra_var": intra_all.var(unbiased=False).item(),
+        "inter_mean": inter_all.mean().item(),
+        "inter_var": inter_all.var(unbiased=False).item(),
+    }
+
 
 
 def compute_species_prior(df, le_sp, device):
@@ -525,10 +585,44 @@ def train_model(
         # ---- validation ----
         val_loss = evaluate_model(models, val_loader, config, loss_fn, miner)
 
+        # ---- collect valid embeddings (epoch-wise) ----
+        val_embeds = []
+        val_labels = []
+
+        for m in models.values():
+            m.eval()
+
+        with torch.no_grad():
+            for batch in val_loader:
+                a_vec, a, _s, _alpha = _encode_batch(models, batch, config)
+                val_embeds.append(a_vec)
+                val_labels.append(a)
+
+        val_embeds = torch.cat(val_embeds, dim=0)   # [N, D]
+        val_labels = torch.cat(val_labels, dim=0)   # [N]
+
+        dist_stats = compute_distance_stats_epoch(
+            embeddings=val_embeds,
+            labels=val_labels,
+            max_per_class=50,
+        )
+
         log_dict = {
             "epoch": epoch + 1,
-            "val/loss": val_loss,
+            "valid/loss": val_loss,
         }
+
+        if dist_stats is not None:
+            log_dict.update({
+                "valid/intra_mean": dist_stats["intra_mean"],
+                "valid/intra_var": dist_stats["intra_var"],
+                "valid/inter_mean": dist_stats["inter_mean"],
+                "valid/inter_var": dist_stats["inter_var"],
+                "valid/separation_ratio": (
+                    dist_stats["inter_mean"] / (dist_stats["intra_mean"] + 1e-8)
+                ),
+            })
+
         for k, v in epoch_metrics.items():
             log_dict[f"train/{k}"] = float(np.mean(v))
 
