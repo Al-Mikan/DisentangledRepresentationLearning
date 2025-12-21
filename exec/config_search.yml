@@ -17,10 +17,10 @@ fused_dim: 512
 feature_dim: 256
 
 # === ハイパーパラメータ探索 ===
-triplet_margin: [0.3, 1.0]
+triplet_margin: [0.5, 1.5]
 temperature: 0.07 # 固定
 lambda_adv: [0.1, 0.5]
-lambda_cls: [0.5, 1.5]
+lambda_cls: [0.0, 0.5]
 lr_enc: [1e-5, 5e-4, log]
 lr_disc: [1e-5, 5e-4, log]
 batch_size: 256
