@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import gc
-from triplet_losses import grl
+from triplet_losses import ImprovedTripletLoss, grl
 import numpy as np
 import torch
 from torch import nn
@@ -57,7 +57,11 @@ def get_loss_fn_and_miner(
             margin=triplet_margin, distance=dist, type_of_triplets="semihard"
         )
     else:
-        loss_fn = losses.TripletMarginLoss(margin=triplet_margin)
+        loss_fn = ImprovedTripletLoss(
+            tau1=triplet_margin,
+            tau2=0.1,
+            beta=0.1,
+        )
         miner = miners.TripletMarginMiner(
             margin=triplet_margin, type_of_triplets="semihard"
         )
@@ -320,7 +324,7 @@ def train_step(
     if adv_enabled:
         current_lambda = lambda_p
         # current_lambda = float(config["lambda_adv"]) * lambda_p
-        
+
         logits_enc = models["discriminator"](a_vec)
 
         if adv_mode == "gan":
