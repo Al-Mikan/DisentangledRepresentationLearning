@@ -318,7 +318,9 @@ def train_step(
 
     # --- 種の敵対的学習 ---
     if adv_enabled:
-        current_lambda = float(config["lambda_adv"]) * lambda_p
+        current_lambda = lambda_p
+        # current_lambda = float(config["lambda_adv"]) * lambda_p
+        
         logits_enc = models["discriminator"](a_vec)
 
         if adv_mode == "gan":
