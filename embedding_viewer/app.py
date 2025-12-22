@@ -43,6 +43,7 @@ PAGE = """
       toggleTitleBox();
     };
   </script>
+
 </head>
 
 <body style="font-family:sans-serif; margin:24px;">
@@ -98,18 +99,20 @@ PAGE = """
     タイトルを付ける
   </label>
 
+  <!-- タイトル入力欄 -->
   <div id="title_box" style="margin-top:8px; display:none;">
     <input type="text" name="title" value="{{title}}" style="width:300px;"
       placeholder="例：Gated / epoch27">
+    <small style="color:gray;">PNGファイル名にも使用されます</small>
   </div>
 
   <br><br>
 
-  <!-- ラベル表示 ON/OFF -->
+  <!-- ★ラベル表示 ON/OFF（追加） -->
   <label>
     <input type="checkbox" name="show_labels"
       {% if show_labels %}checked{% endif %}>
-    ラベルを表示する
+    ラベル（凡例）を表示する
   </label>
 
   <br><br>
@@ -121,7 +124,6 @@ PAGE = """
     <option value="train" {% if view_mode=='train' %}selected{% endif %}>train only</option>
     <option value="test" {% if view_mode=='test' %}selected{% endif %}>test only</option>
   </select>
-
   <br><br>
 
   <!-- Dim Reduction -->
@@ -133,25 +135,44 @@ PAGE = """
 
   <br><br>
 
-  <!-- t-SNE -->
-  <div id="tsne_params" style="display:none;">
+  <!-- t-SNE パラメータ -->
+  <div id="tsne_params" style="display:none; border:1px solid #ddd; padding:12px; margin-bottom:12px;">
+    <h3>t-SNE Parameters</h3>
+
     <label>Perplexity</label><br>
-    <input type="number" name="perplexity" value="{{perplexity}}"><br><br>
+    <input type="number" name="perplexity" value="{{perplexity}}">
+    <small style="color:gray;">クラスタの局所密度（5〜50）</small><br><br>
 
     <label>Learning Rate</label><br>
-    <input type="number" name="learning_rate" value="{{learning_rate}}"><br><br>
+    <input type="number" name="learning_rate" value="{{learning_rate}}">
+    <small style="color:gray;">大きいと暴れる・小さいと収束しにくい</small><br><br>
 
     <label>Early Exaggeration</label><br>
     <input type="number" name="early_exaggeration" value="{{early_exaggeration}}">
+    <small style="color:gray;">初期配置の分離度</small><br><br>
+
+    <label>Init</label><br>
+    <select name="init">
+      <option value="pca" {% if init=='pca' %}selected{% endif %}>pca</option>
+      <option value="random" {% if init=='random' %}selected{% endif %}>random</option>
+    </select><br><br>
+
+    <label>Angle (0.0–1.0)</label><br>
+    <input type="number" step="0.01" name="angle" value="{{angle}}">
+    <small style="color:gray;">0: 正確 / 1: 高速</small>
   </div>
 
-  <!-- UMAP -->
-  <div id="umap_params" style="display:none;">
+  <!-- UMAP パラメータ -->
+  <div id="umap_params" style="display:none; border:1px solid #ddd; padding:12px;">
+    <h3>UMAP Parameters</h3>
+
     <label>n_neighbors</label><br>
-    <input type="number" name="n_neighbors" value="{{n_neighbors}}"><br><br>
+    <input type="number" name="n_neighbors" value="{{n_neighbors}}">
+    <small style="color:gray;">大域 / 局所のバランス</small><br><br>
 
     <label>min_dist</label><br>
     <input type="number" step="0.01" name="min_dist" value="{{min_dist}}">
+    <small style="color:gray;">クラスタの密集度（0〜0.5 推奨）</small><br><br>
   </div>
 
   <br>
@@ -161,8 +182,18 @@ PAGE = """
 
 {% if image_data %}
 <hr>
+<h2>結果</h2>
+
 <img src="data:image/png;base64,{{image_data}}" />
+
+<br><br>
+<a download="{{png_filename}}" href="data:image/png;base64,{{image_data}}">
+  <button>🖼 PNG をダウンロード</button>
+</a>
+
+<pre>{{ summary }}</pre>
 {% endif %}
+
 </body>
 </html>
 """
@@ -172,91 +203,236 @@ PAGE = """
 # ======================================================
 def load_embeddings(path: Path):
     vecs, labels, sources = [], [], []
-    with open(path) as f:
+    with open(path, "r") as f:
         for line in f:
             o = json.loads(line)
             vecs.append(o["vector"])
             labels.append(o["label"])
             sources.append(o.get("source", "unknown"))
-    return np.array(vecs), np.array(labels), np.array(sources)
+    return (
+        np.array(vecs, np.float32),
+        np.array(labels),
+        np.array(sources)
+    )
 
 # ======================================================
-# Plot
+# Plot Helper（train/test を marker で区別）
 # ======================================================
-def plot_embedding(X2d, labels, sources, title, show_labels):
-    plt.figure(figsize=(8, 8))
+def plot_embedding(X2d, labels, sources, title, show_labels: bool):
+    plt.figure(figsize=(8, 8))   # 正方形
+
     if title:
-        plt.title(title)
+        plt.title(title, fontsize=16)
 
-    for lab in np.unique(labels):
-        m = labels == lab
-        for src, marker in [("train", "o"), ("test", "^")]:
-            mask = m & (sources == src)
-            if np.any(mask):
-                plt.scatter(
-                    X2d[mask, 0], X2d[mask, 1],
-                    s=30, marker=marker,
-                    label=f"{lab} ({src})" if show_labels else None
-                )
+    uniq_labels = np.unique(labels)
+
+    for lab in uniq_labels:
+        mask = (labels == lab)
+        mask_train = mask & (sources == "train")
+        mask_test = mask & (sources == "test")
+
+        if np.any(mask_train):
+            plt.scatter(
+                X2d[mask_train, 0], X2d[mask_train, 1],
+                marker="o", s=20, alpha=0.8,
+                label=(f"{lab} (train)" if show_labels else None)
+            )
+        if np.any(mask_test):
+            plt.scatter(
+                X2d[mask_test, 0], X2d[mask_test, 1],
+                marker="^", s=35, alpha=0.9,
+                label=(f"{lab} (test)" if show_labels else None)
+            )
 
     if show_labels:
-        plt.legend(fontsize=8, bbox_to_anchor=(1.02, 0.5), loc="center left")
+        plt.legend(
+            fontsize=8,
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
+            borderaxespad=0.0,
+        )
 
     plt.xticks([]); plt.yticks([])
+
     buf = io.BytesIO()
     plt.savefig(buf, format="png", dpi=150, bbox_inches="tight")
     plt.close()
+
     return base64.b64encode(buf.getvalue()).decode()
 
 # ======================================================
-# Routes
+# Main UI
 # ======================================================
 @app.route("/", methods=["GET"])
 def index():
     dates = sorted([p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir()])
+    selected_date = request.args.get("date", dates[-1] if dates else None)
+
+    runs = []
+    selected_run = None
+    if selected_date:
+        date_dir = TRAIN_RESULT_ROOT / selected_date
+        runs = sorted([p.name for p in date_dir.iterdir() if p.is_dir() and p.name.startswith("run_")])
+        selected_run = request.args.get("run", runs[0] if runs else None)
+
+    model_names = []
+    if selected_date and selected_run:
+        eval_dir = TRAIN_RESULT_ROOT / selected_date / selected_run / "eval"
+        if eval_dir.exists():
+            names = set()
+            for p in eval_dir.glob("*.jsonl"):
+                s = p.stem
+                if s.endswith("_train"):
+                    names.add(s[:-6])
+                elif s.endswith("_test"):
+                    names.add(s[:-5])
+            model_names = sorted(list(names))
+
     return render_template_string(
         PAGE,
         dates=dates,
-        selected_date=dates[-1] if dates else None,
-        runs=[],
-        model_names=[],
-        show_labels=True
+        selected_date=selected_date,
+        runs=runs,
+        selected_run=selected_run,
+        model_names=model_names,
+
+        selected_model=None,
+        view_mode="all",
+        method="tsne",
+
+        perplexity=30,
+        learning_rate=200,
+        early_exaggeration=12,
+        init="pca",
+        angle=0.5,
+
+        n_neighbors=15,
+        min_dist=0.1,
+
+        use_title=False,
+        title="",
+        show_labels=True,  # ★デフォルトON（追加）
+        image_data=None,
+        summary=None,
+        png_filename="embedding.png"
     )
 
+# ======================================================
+# Plot Route
+# ======================================================
 @app.route("/plot", methods=["POST"])
 def plot():
-    date = request.form["date"]
-    run = request.form["run"]
-    model = request.form["model"]
-    view_mode = request.form["view_mode"]
-    show_labels = "show_labels" in request.form
+    date = request.form.get("date")
+    run = request.form.get("run")
+    model = request.form.get("model")
+    view_mode = request.form.get("view_mode")
+
+    method = request.form.get("method")
+
+    # ★ラベル表示 ON/OFF（追加）
+    show_labels = ("show_labels" in request.form)
+
+    # タイトル ON/OFF
+    use_title = ("use_title" in request.form)
+    title = request.form.get("title") if use_title else ""
+
+    perplexity = int(request.form.get("perplexity"))
+    learning_rate = float(request.form.get("learning_rate"))
+    early_exaggeration = float(request.form.get("early_exaggeration"))
+    init = request.form.get("init")
+    angle = float(request.form.get("angle"))
+
+    n_neighbors = int(request.form.get("n_neighbors"))
+    min_dist = float(request.form.get("min_dist"))
+
+    eval_dir = TRAIN_RESULT_ROOT / date / run / "eval"
 
     paths = []
-    base = TRAIN_RESULT_ROOT / date / run / "eval"
-    if view_mode in ("all", "train"):
-        paths.append(base / f"{model}_train.jsonl")
-    if view_mode in ("all", "test"):
-        paths.append(base / f"{model}_test.jsonl")
+    if view_mode in ("train", "all"):
+        paths.append(eval_dir / f"{model}_train.jsonl")
+    if view_mode in ("test", "all"):
+        paths.append(eval_dir / f"{model}_test.jsonl")
 
-    X, y, s = [], [], []
+    vecs_all, labels_all, sources_all = [], [], []
     for p in paths:
-        vx, vy, vs = load_embeddings(p)
-        X.append(vx); y.append(vy); s.append(vs)
+        if not p.exists():
+            return f"File not found: {p}", 404
+        X, labels, sources = load_embeddings(p)
+        vecs_all.append(X)
+        labels_all.append(labels)
+        sources_all.append(sources)
 
-    X = np.concatenate(X)
-    y = np.concatenate(y)
-    s = np.concatenate(s)
+    X = np.concatenate(vecs_all, axis=0)
+    labels = np.concatenate(labels_all, axis=0)
+    sources = np.concatenate(sources_all, axis=0)
 
-    reducer = TSNE(n_components=2)
-    X2d = reducer.fit_transform(X)
+    if method == "tsne":
+        reducer = TSNE(
+            n_components=2,
+            perplexity=perplexity,
+            learning_rate=learning_rate,
+            early_exaggeration=early_exaggeration,
+            init=init,
+            angle=angle,
+        )
+        X2d = reducer.fit_transform(X)
+        summary = f"t-SNE (samples={len(X)})"
 
-    img = plot_embedding(X2d, y, s, "", show_labels)
+    else:
+        reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            metric="cosine",
+        )
+        X2d = reducer.fit_transform(X)
+        summary = f"UMAP (samples={len(X)})"
+
+    image_data = plot_embedding(X2d, labels, sources, title, show_labels=show_labels)
+    png_filename = (title + ".png") if title else "embedding.png"
+
+    dates = sorted([p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir()])
+    runs = sorted([p.name for p in (TRAIN_RESULT_ROOT / date).iterdir() if p.is_dir() and p.name.startswith("run_")])
+
+    # model_names の重複を消して表示（元のコードを安全に）
+    model_names_set = set()
+    for p in (TRAIN_RESULT_ROOT / date / run / "eval").glob("*.jsonl"):
+        s = p.stem
+        if s.endswith("_train"):
+            model_names_set.add(s[:-6])
+        elif s.endswith("_test"):
+            model_names_set.add(s[:-5])
+    model_names = sorted(model_names_set)
 
     return render_template_string(
         PAGE,
-        image_data=img,
-        show_labels=show_labels
+        dates=dates,
+        selected_date=date,
+        runs=runs,
+        selected_run=run,
+        model_names=model_names,
+
+        selected_model=model,
+        view_mode=view_mode,
+        method=method,
+
+        perplexity=perplexity,
+        learning_rate=learning_rate,
+        early_exaggeration=early_exaggeration,
+        init=init,
+        angle=angle,
+
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+
+        use_title=use_title,
+        title=title,
+        show_labels=show_labels,  # ★反映（追加）
+
+        image_data=image_data,
+        summary=summary,
+        png_filename=png_filename
     )
+
 
 if __name__ == "__main__":
     app.run(debug=True)
