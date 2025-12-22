@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class ImprovedTripletLoss(nn.Module):
-    def __init__(self, tau1=0.3, tau2=0.1, beta=0.1):
+    def __init__(self, tau1=0.3, tau2=0.5, beta=0.1):
         super().__init__()
         self.tau1 = tau1
         self.tau2 = tau2
