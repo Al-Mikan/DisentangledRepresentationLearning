@@ -57,11 +57,7 @@ def get_loss_fn_and_miner(
             margin=triplet_margin, distance=dist, type_of_triplets="semihard"
         )
     else:
-        loss_fn = ImprovedTripletLoss(
-            tau1=triplet_margin,
-            tau2=0.1,
-            beta=0.1,
-        )
+        loss_fn = ImprovedTripletLoss()
         miner = miners.TripletMarginMiner(
             margin=triplet_margin, type_of_triplets="semihard"
         )
@@ -253,120 +249,96 @@ def train_step(
     le_sp: LabelEncoder,
     lambda_p: float,
     species_prior: Optional[torch.Tensor] = None,
-) -> Tuple[float, Optional[np.ndarray], Optional[float], Optional[float], Optional[float], Optional[float]]:
-    """
-    戻り値:
-        total_loss, alpha_np, disc_loss_val, disc_acc_val, cls_loss_val, disc_mcc_val
-    """
-    metrics = {}
+) -> Tuple[Dict[str, float], Optional[np.ndarray]]:
 
+    metrics = {}
     for m in models.values():
         m.train()
 
+    # 特徴抽出 (Forward)
     a_vec, a, s, alpha = _encode_batch(models, batch, config)
     adv_mode = config.get("adversarial", "off")
     adv_enabled = adv_mode != "off"
+    lam = float(config.get("lambda_adv", 0.1))
 
-    # --- Discriminator の更新 ---
+    # ==========================================
+    # (1) Discriminator の更新 (種を当てたい)
+    # ==========================================
     if adv_enabled:
-        disc = models["discriminator"]
         opt_disc = optimizers["discriminator"]
-
         opt_disc.zero_grad()
-        logits_disc = disc(a_vec.detach())
+
+        # a_vec.detach() で Encoder への勾配逆流を遮断
+        logits_disc = models["discriminator"](a_vec.detach())
         disc_loss = nn.CrossEntropyLoss()(logits_disc, s)
 
+        # 指標の計算 (Acc & MCC)
         pred_disc = logits_disc.argmax(dim=1)
-
         metrics["adv_disc/loss"] = disc_loss.item()
         metrics["adv_disc/acc"] = (pred_disc == s).float().mean().item()
         metrics["adv_disc/mcc"] = matthews_corrcoef(
             s.detach().cpu().numpy(),
-            pred_disc.detach().cpu().numpy(),
+            pred_disc.detach().cpu().numpy()
         )
 
         disc_loss.backward()
         opt_disc.step()
 
-    # --- encoder(main) の更新 ---
+    # ==========================================
+    # (2) Encoder の更新 (行動分離 + 種の隠蔽)
+    # ==========================================
     main_opt = optimizers.get("encoder") or optimizers.get("main")
     main_opt.zero_grad()
 
-    # ---- Triplet / SupCon loss ----
+    # 1. Triplet Loss / SupCon
     if config["loss_type"] == "supcon":
-        triplet_loss = loss_fn(a_vec, labels=a)
+        total_loss = loss_fn(a_vec, labels=a)
     elif miner is not None:
         hard = miner(a_vec, a)
-        triplet_loss = loss_fn(a_vec, a, hard)
+        total_loss = loss_fn(a_vec, a, hard)
     else:
-        triplet_loss = loss_fn(a_vec, a)
+        total_loss = loss_fn(a_vec, a)
+    
+    metrics["triplet/loss"] = total_loss.item()
 
-    metrics["triplet/loss"] = triplet_loss.item()
-    total_loss = triplet_loss
-
-    # --- 行動分類 CE  ---
+    # 2. 行動分類 CE (もし lambda_cls が設定されていれば)
     lambda_cls = float(config.get("lambda_cls", 0.0))
-    if lambda_cls:
+    if lambda_cls > 0:
         logits_act = models["action_classifier"](a_vec)
         ce_act = nn.CrossEntropyLoss()(logits_act, a)
-        pred_act = logits_act.argmax(dim=1)
-
         metrics["action_ce/loss"] = ce_act.item()
-        metrics["action_ce/acc"] = (pred_act == a).float().mean().item()
+        metrics["action_ce/acc"] = (logits_act.argmax(dim=1) == a).float().mean().item()
         metrics["action_ce/mcc"] = matthews_corrcoef(
             a.detach().cpu().numpy(),
-            pred_act.detach().cpu().numpy(),
+            logits_act.argmax(dim=1).detach().cpu().numpy()
         )
-
         total_loss = total_loss + lambda_cls * ce_act
 
-    # --- 種の敵対的学習 ---
+    # 3. Adversarial (GRLを使用)
     if adv_enabled:
-        current_lambda = lambda_p
-        # current_lambda = float(config["lambda_adv"]) * lambda_p
+        # GRLを通して反転勾配を生成
+        rev = grl(a_vec, lam)
+        logits_enc = models["discriminator"](rev)
 
-        logits_enc = models["discriminator"](a_vec)
-
-        if adv_mode == "gan":
-            ce_enc = nn.CrossEntropyLoss()(logits_enc, s)
-            metrics["adv_enc/loss"] = ce_enc.item()
-            total_loss = total_loss - current_lambda * ce_enc
-
-        elif adv_mode == "dann":
-            rev = grl(a_vec, current_lambda)
-            logits_dann = models["discriminator"](rev)
-            adv_loss = nn.CrossEntropyLoss()(logits_dann, s)
-            metrics["adv_enc/loss"] = adv_loss.item()
-            total_loss = total_loss + adv_loss
-
+        if adv_mode == "dann":
+            adv_loss = nn.CrossEntropyLoss()(logits_enc, s)
         elif adv_mode == "kl":
-            # log p(s | z)
-            logp = nn.functional.log_softmax(logits_enc, dim=1)   # [B, C]
+            logp = nn.functional.log_softmax(logits_enc, dim=1)
+            prior = species_prior.unsqueeze(0).expand_as(logp)
+            adv_loss = nn.KLDivLoss(reduction="batchmean")(logp, prior)
+        
+        metrics["adv_enc/loss"] = adv_loss.item()
+        total_loss = total_loss + adv_loss
 
-            # q(s): データの種分布（prior）
-            prior = species_prior.unsqueeze(0).expand_as(logp)   # [B, C]
-
-            # KL(q || p)
-            kl = nn.KLDivLoss(reduction="batchmean")(logp, prior)
-
-            metrics["adv_enc/loss"] = kl.item()
-            total_loss = total_loss + current_lambda * kl
-
-    metrics["total/loss"] = total_loss.item()
-
-    # ---- backward ----
+    # 4. Encoder 側の Backward & Step
     total_loss.backward()
 
     enc = models["action_encoder"] if "action_encoder" in models else models["net"]
     nn.utils.clip_grad_norm_(enc.parameters(), 5.0)
-    if "fusion" in models:
-        nn.utils.clip_grad_norm_(models["fusion"].parameters(), 5.0)
-
     main_opt.step()
 
     alpha_np = alpha.detach().cpu().numpy() if alpha is not None else None
     return metrics, alpha_np
-
 
 
 def save_alpha_epoch(alpha_parts: List[np.ndarray], epoch: int, config: Dict[str, Any], trial: optuna.trial.Trial, results_root: Optional[Path], is_ablation: bool) -> None:
@@ -601,8 +573,8 @@ def train_model(
         with torch.no_grad():
             for batch in val_loader:
                 a_vec, a, _s, _alpha = _encode_batch(models, batch, config)
-                val_embeds.append(a_vec)
-                val_labels.append(a)
+                val_embeds.append(a_vec.detach().cpu())
+                val_labels.append(a.detach().cpu())
 
         val_embeds = torch.cat(val_embeds, dim=0)   # [N, D]
         val_labels = torch.cat(val_labels, dim=0)   # [N]
