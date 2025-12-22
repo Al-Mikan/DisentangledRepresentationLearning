@@ -252,6 +252,7 @@ def _run_one_fold(
             fusion=fusion_model,
             results_root=results_root,
         )
+        inf_models = None
 
         model_path = trial.user_attrs.get("model_save_path")
         if not model_path:
@@ -296,4 +297,10 @@ def _run_one_fold(
         return None
 
     finally:
+        if 'inf_models' in locals() and inf_models is not None:
+            del inf_models
+        if 'train_loader' in locals():
+            del train_loader
+        if 'val_loader' in locals():
+            del val_loader
         cleanup_memory()
