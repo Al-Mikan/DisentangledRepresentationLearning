@@ -316,19 +316,21 @@ def train_step(
 
     # 3. Adversarial (GRLを使用)
     if adv_enabled:
-        # GRLを通して反転勾配を生成
-        rev = grl(a_vec, lam)
-        logits_enc = models["discriminator"](rev)
-
         if adv_mode == "dann":
+            rev = grl(a_vec, lam)
+            logits_enc = models["discriminator"](rev)
             adv_loss = nn.CrossEntropyLoss()(logits_enc, s)
+            metrics["adv_enc/loss"] = adv_loss.item()
+            total_loss = total_loss + adv_loss
         elif adv_mode == "kl":
+            logits_enc = models["discriminator"](a_vec)
             logp = nn.functional.log_softmax(logits_enc, dim=1)
             prior = species_prior.unsqueeze(0).expand_as(logp)
+
             adv_loss = nn.KLDivLoss(reduction="batchmean")(logp, prior)
         
-        metrics["adv_enc/loss"] = adv_loss.item()
-        total_loss = total_loss + adv_loss
+            metrics["adv_enc/loss"] = adv_loss.item()
+            total_loss = total_loss + lam * adv_loss
 
     # 4. Encoder 側の Backward & Step
     total_loss.backward()
