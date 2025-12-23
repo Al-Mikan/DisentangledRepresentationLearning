@@ -8,7 +8,7 @@ import torch.nn.functional as F
 # -----------------------------
 
 class SimpleMLPNet(nn.Module):
-    def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.2):
+    def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.3):
         super().__init__()
         self.act_embed = nn.Sequential(
             nn.Linear(input_dim, hidden_dim, bias=True),
@@ -35,7 +35,7 @@ class SimpleMLPNet(nn.Module):
 # 2. Adversarial Discriminator Setup
 # -----------------------------
 class ActionMLPNet(nn.Module):
-    def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.2):
+    def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.3):
         super().__init__()
         self.act_embed = nn.Sequential(
             nn.Linear(input_dim, hidden_dim, bias=True),
