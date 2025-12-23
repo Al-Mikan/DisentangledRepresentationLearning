@@ -100,7 +100,7 @@ def objective(
         # 学習設定・モード関連
         # =========================
         "train_mode": yaml_cfg.get("train_mode", "gated"),  # 学習対象モード（mae / flow / gated）
-        "loss_type": yaml_cfg.get("loss_type", "triplet"),  # 損失関数の種類（triplet, supcon, cosineなど）
+        "loss_type": yaml_cfg.get("loss_type", "triplet"),  # 損失関数の種類（triplet, cosineなど）
         "adversarial": yaml_cfg.get("adversarial", "gan"),  # 敵対的学習の有効化（off / gan / kl）
         "flow_preprocessing": yaml_cfg.get("flow_preprocessing", "centered"),  # Optical Flow特徴の前処理（normal / centered）
         "pooling":  bool(yaml_cfg.get("pooling", True)),  # VideoMAE特徴のプーリング使用有無
@@ -117,7 +117,6 @@ def objective(
         # 損失関数パラメータ
         # =========================
         "triplet_margin": float(yaml_cfg.get("triplet_margin", 0.1)),  # Triplet Loss のマージン値
-        "temperature": float(yaml_cfg.get("temperature", 0.07)),       # SupCon Lossなどで使う温度パラメータ
 
         # =========================
         # バッチ・エポックなどの学習制御
@@ -251,7 +250,7 @@ def _run_one_fold(
             study_name="optuna",
             fusion=fusion_model,
             results_root=results_root,
-            fold=fold,
+            fold_idx=fold,
             log_fold=LOG_FOLD,
         )
         inf_models = None

@@ -17,7 +17,7 @@ from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 from utils import set_seed
 from utils import MAE_Dataset,X3D_Dataset, X3D_MAE_Dataset
 from model import (
-    SimpleMLPNet,  ActionMLPNet,
+    ActionClassifier, SimpleMLPNet,  ActionMLPNet,
     SpeciesDiscriminator, GatedFusion
 )
 from pytorch_metric_learning import losses, miners, distances
@@ -44,13 +44,10 @@ def cleanup_memory() -> None:
 
 def get_loss_fn_and_miner(
     loss_type: str,
-    temperature: float = 0.07,
     triplet_margin: float = 0.1,
 ):
     miner = None
-    if loss_type == "supcon":
-        loss_fn = losses.SupConLoss(temperature=temperature)
-    elif loss_type == "cosine":
+    if loss_type == "cosine":
         dist = distances.CosineSimilarity()
         loss_fn = losses.TripletMarginLoss(distance=dist, margin=triplet_margin)
         miner = miners.TripletMarginMiner(
@@ -290,10 +287,8 @@ def train_step(
     main_opt = optimizers.get("encoder") or optimizers.get("main")
     main_opt.zero_grad()
 
-    # 1. Triplet Loss / SupCon
-    if config["loss_type"] == "supcon":
-        total_loss = loss_fn(a_vec, labels=a)
-    elif miner is not None:
+    # 1. Triplet Loss 
+    if miner is not None:
         hard = miner(a_vec, a)
         total_loss = loss_fn(a_vec, a, hard)
     else:
@@ -386,9 +381,7 @@ def evaluate_model(
             a_vec, a, _s, _alpha = _encode_batch(models, batch, config)
 
             # metric loss
-            if config["loss_type"] == "supcon":
-                loss = loss_fn(a_vec, labels=a)
-            elif miner is not None:
+            if miner is not None:
                 hard = miner(a_vec, a)
                 loss = loss_fn(a_vec, a, hard)
             else:
@@ -458,7 +451,7 @@ def train_model(
     if adv_enabled:
         models["action_encoder"] = ActionMLPNet(D, 256, 256).to(DEVICE)
         models["discriminator"] = SpeciesDiscriminator(256, num_species).to(DEVICE)
-        models["action_classifier"] = nn.Linear(256, num_actions).to(DEVICE)
+        models["action_classifier"] = ActionClassifier(256, num_actions).to(DEVICE)
 
         params_enc = list(models["action_encoder"].parameters()) + \
                      list(models["action_classifier"].parameters())
@@ -480,7 +473,7 @@ def train_model(
         )
     else:
         models["net"] = SimpleMLPNet(D, 256, 256).to(DEVICE)
-        models["action_classifier"] = nn.Linear(256, num_actions).to(DEVICE)
+        models["action_classifier"] = ActionClassifier(256, num_actions).to(DEVICE)
 
         params = list(models["net"].parameters()) + \
                  list(models["action_classifier"].parameters())
@@ -500,7 +493,6 @@ def train_model(
     # -------------------------------
     loss_fn, miner = get_loss_fn_and_miner(
         str(config["loss_type"]),
-        temperature=float(config.get("temperature", 0.07)),
         triplet_margin=float(config.get("triplet_margin", 0.1)),
     )
 

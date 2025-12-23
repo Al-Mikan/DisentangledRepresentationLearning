@@ -6,7 +6,7 @@
 
 - train.py
 
-  - 目的: flow/x3d・VideoMAE・ゲート融合の各特徴から行動表現を学習。Triplet/Cosine/SupCon に対応。Optuna で探索、W&B でロギング。敵対的正則化で種情報の抑制も可。
+  - 目的: flow/x3d・VideoMAE・ゲート融合の各特徴から行動表現を学習。Triplet/Cosine に対応。Optuna で探索、W&B でロギング。敵対的正則化で種情報の抑制も可。
   - 入力: `label/<datatype>/train/labels.csv`、`x3d_vector/`（または`x3d_vector_centered/`）、`vector/<datatype>/*`（各動画ごとのフォルダに `avg_pooling.npy` / `sliding_list/*.npy` を配置）
   - 出力: `models/<datatype>/<study_name>/<run_name>_best.pth`（ベストのみ）、`optuna_study.db`、`alpha_logs/`（gated 時に α を保存）
   - 実行例: `python .\exec\train.py`
