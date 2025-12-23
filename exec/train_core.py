@@ -426,6 +426,8 @@ def train_model(
     run_name_override: Optional[str] = None,
     is_ablation: bool = False,
     ablation_subdir: Optional[str] = None,
+    fold_idx: int = 0,
+    log_fold: int = 1,
 ) -> float:
     """モデル学習ループ（Optuna・アブレーション共通）"""
 
@@ -606,7 +608,8 @@ def train_model(
         for k, v in epoch_metrics.items():
             log_dict[f"train/{k}"] = float(np.mean(v))
 
-        wandb.log(log_dict)
+        if fold_idx == log_fold:
+            wandb.log(log_dict)
 
         # ---- early stopping ----
         if val_loss < best_val:
