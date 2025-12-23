@@ -1,6 +1,6 @@
 # config_search.yaml
 # === 実験設定 ===
-project_name: animalkingdom_split1223
+project_name: animalkingdom_split1224
 experiment_name: triplet_vs_gan
 output_root: ./train_result
 datatype: animalkingdom_split
@@ -17,7 +17,7 @@ fused_dim: 512
 feature_dim: 256
 
 # === ハイパーパラメータ探索 ===
-triplet_margin: 0.3
+triplet_margin: 2.0
 lambda_adv: [0.01, 0.2]
 lambda_cls: [0.8, 1.5]
 lr_enc: [1e-5, 5e-4, log]

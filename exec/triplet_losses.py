@@ -15,9 +15,9 @@ class ImprovedTripletLoss(nn.Module):
             return torch.tensor(0.0, device=embeddings.device, requires_grad=True)
 
         a_idx, p_idx, n_idx = triplets
-        anchor   = F.normalize(embeddings[a_idx], dim=-1)
-        positive = F.normalize(embeddings[p_idx], dim=-1)
-        negative = F.normalize(embeddings[n_idx], dim=-1)
+        anchor   = embeddings[a_idx]
+        positive = embeddings[p_idx]
+        negative = embeddings[n_idx]
 
         d_ap = F.pairwise_distance(anchor, positive)
         d_an = F.pairwise_distance(anchor, negative)
@@ -25,6 +25,7 @@ class ImprovedTripletLoss(nn.Module):
         # tau1: Margin, tau2: Intra-class compactness
         inter_loss = torch.relu(d_ap - d_an + self.tau1)
         intra_loss = torch.relu(d_ap - self.tau2).pow(2) 
+
 
         return inter_loss.mean() + self.beta * intra_loss.mean()
 

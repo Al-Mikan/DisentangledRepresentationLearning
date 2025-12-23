@@ -690,7 +690,6 @@ def _compute_embeddings(models: nn.ModuleDict, loader: DataLoader, config: Dict[
 
 def _compute_clustering_metrics(models: nn.ModuleDict, loader: DataLoader, config: Dict[str, Any]):
     X, y = _compute_embeddings(models, loader, config)
-    X = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-8)
     n_clusters = len(np.unique(y))
     if n_clusters <= 1:
         return 0.0, 0.0, 0.0

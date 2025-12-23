@@ -22,7 +22,8 @@ class SimpleMLPNet(nn.Module):
 
     def forward(self, x):
         x = self.act_embed(x)
-        return F.normalize(x, dim=-1)
+        return x
+        # return F.normalize(x, dim=-1)
 
     def _init_weights(self):
         for m in self.modules():
@@ -49,7 +50,8 @@ class ActionMLPNet(nn.Module):
 
     def forward(self, x):
         x = self.act_embed(x)
-        return F.normalize(x, dim=-1)
+        return x
+        # return F.normalize(x, dim=-1)
 
     def _init_weights(self):
         for m in self.modules():
