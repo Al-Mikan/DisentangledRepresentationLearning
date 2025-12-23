@@ -57,7 +57,7 @@ def get_loss_fn_and_miner(
             margin=triplet_margin, distance=dist, type_of_triplets="semihard"
         )
     else:
-        loss_fn = ImprovedTripletLoss()
+        loss_fn = ImprovedTripletLoss(tau1=triplet_margin, tau2=0.5, beta=0.1)
         miner = miners.TripletMarginMiner(
             margin=triplet_margin, type_of_triplets="semihard"
         )
