@@ -202,18 +202,10 @@ def build_datasets_and_loaders(
 def _encode_batch(models: nn.ModuleDict, batch, config: Dict[str, Any]):
     if config["train_mode"] == "gated":
         x3d, vmae, a, s = batch
-        x3d, vmae = x3d.to(DEVICE), vmae.to(DEVICE)
+        x3d = x3d.to(DEVICE).squeeze(1)
+        vmae = vmae.to(DEVICE)
         a = a.to(DEVICE, dtype=torch.long)
         s = s.to(DEVICE, dtype=torch.long)
-        
-        # Flatten if not pooled (Batch, Frames, Dim) -> (Batch*Frames, Dim)
-        if x3d.dim() == 3:
-            b, t, d = x3d.shape
-            x3d = x3d.reshape(b * t, d)
-            vmae = vmae.reshape(b * t, -1)
-            # Expand labels: (Batch,) -> (Batch, Frames) -> (Batch*Frames,)
-            a = a.unsqueeze(1).expand(b, t).reshape(-1)
-            s = s.unsqueeze(1).expand(b, t).reshape(-1)
 
         fused, alpha = models["fusion"](x3d, vmae)
         x = fused
