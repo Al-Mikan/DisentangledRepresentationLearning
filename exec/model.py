@@ -118,3 +118,41 @@ class GatedFusion(nn.Module):
             # gate: Linear(d_hidden*2 -> d_hidden) -> LayerNorm -> Sigmoid
             if self.gate[0].bias is not None:
                 nn.init.zeros_(self.gate[0].bias)
+
+
+
+class ActionClassifier(nn.Module):
+    """
+    行動分類用のシンプルな classifier
+    - 入力: 行動埋め込みベクトル (B, D)
+    - 出力: 行動クラス logits (B, num_actions)
+    """
+
+    def __init__(
+        self,
+        in_dim: int,
+        num_actions: int,
+        hidden_dim: int = 0,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+
+        # hidden_dim <= 0 のときは Linear 1層
+        if hidden_dim <= 0:
+            self.net = nn.Linear(in_dim, num_actions)
+        else:
+            self.net = nn.Sequential(
+                nn.Linear(in_dim, hidden_dim),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, num_actions),
+            )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: (B, D) 行動埋め込み
+        Returns:
+            logits: (B, num_actions)
+        """
+        return self.net(x)
