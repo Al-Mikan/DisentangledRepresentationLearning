@@ -22,7 +22,7 @@ lambda_adv: [0.01, 0.1]
 lambda_cls: [0.8, 1.5]
 lr_enc: [1e-4, 1e-3, log]
 lr_disc: [1e-5, 5e-4, log]
-batch_size: 128
+batch_size: 256
 disc_steps_per_batch: 1
 
 # === 学習環境 ===
