@@ -161,10 +161,14 @@ def objective(
         kfold = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
         for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(full_df, full_df["action"])):
+    
+            train_df = full_df.iloc[train_idx].reset_index(drop=True)
+            val_df = full_df.iloc[val_idx].reset_index(drop=True)
+
             fold_score = _run_one_fold(
                 trial, config,
-                train_df=full_df.iloc[train_idx].reset_index(drop=True),
-                val_df=full_df.iloc[val_idx].reset_index(drop=True),
+                train_df=train_df,
+                val_df=val_df,
                 le_act=le_act, le_sp=le_sp,
                 results_root=results_root,
                 fold=fold_idx,
@@ -238,6 +242,7 @@ def _run_one_fold(
     LOG_FOLD = 1  # ログをwandbに送るfold番号（1始まり）
     try:
         train_loader, val_loader, fusion_model = build_datasets_and_loaders(config, train_df, val_df, le_act, le_sp)
+
         check_dataset_shapes(train_loader, config["train_mode"])
 
         best_val_score = train_model(
