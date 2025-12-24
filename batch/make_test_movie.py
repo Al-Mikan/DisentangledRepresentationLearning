@@ -5,16 +5,16 @@ import subprocess
 def hms_to_seconds(hms):
     return sum(int(x) * 60 ** i for i, x in enumerate(reversed(hms.split(":"))))
 
-input_path = "./polar/91_2020_08_30_17.mp4"
-start_time_str = "00:21:54"
-end_time_str = "00:53:16"
+input_path = "./video/elephant/31_2022_08_10_12.mp4"
+start_time_str = "00:41:40"
+end_time_str = "00:42:17"
 clip_length = 30  # 秒
 
-label = "sleeping"
-species = "Polar Bear"
+label = "walking"
+species = "Elephant"
 parent_class = "mammal"
 csv_path = "labels_test.csv"
-output_dir = "./test_video"
+output_dir = "./video/elephant"
 os.makedirs(output_dir, exist_ok=True)
 
 start_time_sec = hms_to_seconds(start_time_str)

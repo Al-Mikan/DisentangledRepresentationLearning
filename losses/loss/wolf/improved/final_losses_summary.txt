@@ -1,4 +1,0 @@
-[wolf_improved_mlp-grl] last_loss=3.7037
-[wolf_improved_mlp-nogrl] last_loss=0.0006
-[wolf_improved_linear-grl] last_loss=3.4249
-[wolf_improved_linear-nogrl] last_loss=0.0004

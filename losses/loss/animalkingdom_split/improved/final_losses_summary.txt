@@ -1,4 +1,0 @@
-[animalkingdom_split_improved_mlp-grl] last_loss=3.4766
-[animalkingdom_split_improved_mlp-nogrl] last_loss=0.0001
-[animalkingdom_split_improved_linear-grl] last_loss=3.5262
-[animalkingdom_split_improved_linear-nogrl] last_loss=0.0985

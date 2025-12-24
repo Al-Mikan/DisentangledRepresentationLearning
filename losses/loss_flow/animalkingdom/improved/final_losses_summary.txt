@@ -1,4 +1,0 @@
-[animalkingdom_flow_improved_mlp-grl] last_loss=2.5035
-[animalkingdom_flow_improved_mlp-nogrl] last_loss=0.0020
-[animalkingdom_flow_improved_linear-grl] last_loss=1.2049
-[animalkingdom_flow_improved_linear-nogrl] last_loss=0.0056

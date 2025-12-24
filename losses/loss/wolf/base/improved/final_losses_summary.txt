@@ -1,4 +1,0 @@
-[wolf_base_sliding_improved_mlp-nogrl] epoch=644 | total=0.0996 | trip_a=0.0497 | trip_s=0.0003 | adv_s=5.0149 | adv_a=1.9643
-[wolf_base_sliding_improved_mlp-grl] epoch=227 | total=6.0531 | trip_a=0.9352 | trip_s=1.6600 | adv_s=4.6249 | adv_a=2.0804
-[wolf_base_sliding_improved_linear-nogrl] epoch=889 | total=2.3516 | trip_a=1.0246 | trip_s=0.6047 | adv_s=5.0260 | adv_a=1.9082
-[wolf_base_sliding_improved_linear-grl] epoch=334 | total=5.7494 | trip_a=1.0453 | trip_s=0.8328 | adv_s=4.5965 | adv_a=1.8883

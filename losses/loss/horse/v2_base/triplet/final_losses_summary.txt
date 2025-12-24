@@ -1,8 +1,0 @@
-[horse_v2_base_sliding_triplet_mlp-nogrl] epoch=224 | total=2.4959 | trip_a=1.0002 | trip_s=0.9910 | adv_s=5.0215 | adv_a=1.9349
-[horse_v2_base_sliding_triplet_mlp-grl] epoch=146 | total=8.7139 | trip_a=1.0000 | trip_s=5.7215 | adv_s=4.8195 | adv_a=2.8866
-[horse_v2_base_sliding_triplet_linear-nogrl] epoch=999 | total=2.9551 | trip_a=1.2265 | trip_s=1.0041 | adv_s=5.0658 | adv_a=1.9170
-[horse_v2_base_sliding_triplet_linear-grl] epoch=835 | total=6.0755 | trip_a=1.2440 | trip_s=1.0571 | adv_s=4.3315 | adv_a=1.7864
-[horse_v2_base_sliding_triplet_mlp-nogrl] epoch=926 | total=0.2130 | trip_a=0.1000 | trip_s=0.0259 | adv_s=79.0733 | adv_a=1.9569
-[horse_v2_base_sliding_triplet_mlp-grl] epoch=50 | total=41.7560 | trip_a=1.1349 | trip_s=0.6917 | adv_s=57.3994 | adv_a=20.8812
-[horse_v2_base_sliding_triplet_linear-nogrl] epoch=771 | total=0.2524 | trip_a=0.1012 | trip_s=0.1002 | adv_s=18.2916 | adv_a=7.7262
-[horse_v2_base_sliding_triplet_linear-grl] epoch=50 | total=7.6998 | trip_a=0.7183 | trip_s=0.7029 | adv_s=6.8776 | adv_a=4.9458
