@@ -270,8 +270,8 @@ def _run_one_fold(
         state = torch.load(model_path, map_location="cuda" if torch.cuda.is_available() else "cpu")
         inf_models.load_state_dict(state, strict=False)
 
-        ari_val, nmi_val, combined_val = _compute_clustering_metrics(inf_models, val_loader, config)
-        ari_train, nmi_train, combined_train = _compute_clustering_metrics(inf_models, train_loader, config)
+        ari_val, nmi_val, combined_val, ari_val_norm, nmi_val_norm, combined_val_norm = _compute_clustering_metrics(inf_models, val_loader, config)
+        ari_train, nmi_train, combined_train, ari_train_norm, nmi_train_norm, combined_train_norm = _compute_clustering_metrics(inf_models, train_loader, config)
 
         val_norm = (combined_val + 1) / 2
         train_norm = (combined_train + 1) / 2
@@ -284,11 +284,10 @@ def _run_one_fold(
                     "fold": fold + 1,
                     "ari_train": ari_train,
                     "nmi_train": nmi_train,
-                    "combined_train": combined_train,
                     "ari_val": ari_val,
                     "nmi_val": nmi_val,
-                    "combined_val": combined_val,
-                    "score": score,
+                    "ari_val_norm": ari_val_norm,
+                    "nmi_val_norm": nmi_val_norm,
                 }
             )
 

@@ -54,7 +54,7 @@ def get_loss_fn_and_miner(
             margin=triplet_margin, distance=dist, type_of_triplets="semihard"
         )
     else:
-        loss_fn = ImprovedTripletLoss(tau1=triplet_margin, tau2=0.5, beta=0.1)
+        loss_fn = ImprovedTripletLoss(tau1=triplet_margin, tau2=1.0, beta=0.5)
         miner = miners.TripletMarginMiner(
             margin=triplet_margin, type_of_triplets="semihard"
         )
@@ -693,8 +693,16 @@ def _compute_clustering_metrics(models: nn.ModuleDict, loader: DataLoader, confi
     n_clusters = len(np.unique(y))
     if n_clusters <= 1:
         return 0.0, 0.0, 0.0
+    
+
     pred = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(X)
     ari = adjusted_rand_score(y, pred)
     nmi = normalized_mutual_info_score(y, pred)
-    return float(ari), float(nmi), float((ari + nmi) / 2.0)
+
+    # --- 正規化版 ---
+    X_normalized = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-8)
+    pred = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(X_normalized)
+    ari_norm = adjusted_rand_score(y, pred)
+    nmi_norm = normalized_mutual_info_score(y, pred)
+    return float(ari), float(nmi), float((ari + nmi) / 2.0), float(ari_norm), float(nmi_norm), float((ari_norm + nmi_norm) / 2.0)
 
