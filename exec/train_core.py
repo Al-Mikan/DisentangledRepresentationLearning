@@ -25,6 +25,7 @@ import optuna
 import wandb
 from sklearn.metrics import matthews_corrcoef
 import itertools
+from sklearn.mixture import GaussianMixture
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EARLY_STOP_PATIENCE = 50
@@ -695,14 +696,18 @@ def _compute_clustering_metrics(models: nn.ModuleDict, loader: DataLoader, confi
         return 0.0, 0.0, 0.0
     
 
+    # KMeans
     pred = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(X)
     ari = adjusted_rand_score(y, pred)
     nmi = normalized_mutual_info_score(y, pred)
 
-    # --- 正規化版 ---
-    X_normalized = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-8)
-    pred = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(X_normalized)
-    ari_norm = adjusted_rand_score(y, pred)
-    nmi_norm = normalized_mutual_info_score(y, pred)
-    return float(ari), float(nmi), float((ari + nmi) / 2.0), float(ari_norm), float(nmi_norm), float((ari_norm + nmi_norm) / 2.0)
+    # GMM
+    gmm_pred = GaussianMixture(
+        n_components=n_clusters,
+        covariance_type="full", 
+        random_state=42
+    ).fit_predict(X)
+    ari_gmm = adjusted_rand_score(y, gmm_pred)
+    nmi_gmm = normalized_mutual_info_score(y, gmm_pred)
+    return float(ari), float(nmi), float((ari + nmi) / 2.0), float(ari_gmm), float(nmi_gmm), float((ari_gmm + nmi_gmm) / 2.0)
 

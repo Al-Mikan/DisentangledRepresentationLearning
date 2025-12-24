@@ -270,11 +270,11 @@ def _run_one_fold(
         state = torch.load(model_path, map_location="cuda" if torch.cuda.is_available() else "cpu")
         inf_models.load_state_dict(state, strict=False)
 
-        ari_val, nmi_val, combined_val, ari_val_norm, nmi_val_norm, combined_val_norm = _compute_clustering_metrics(inf_models, val_loader, config)
-        ari_train, nmi_train, combined_train, ari_train_norm, nmi_train_norm, combined_train_norm = _compute_clustering_metrics(inf_models, train_loader, config)
+        ari_val, nmi_val, combined_val, ari_gmm, nmi_gmm, combined_gmm = _compute_clustering_metrics(inf_models, val_loader, config)
+        ari_train, nmi_train, combined_train, ari_gmm_train, nmi_gmm_train, combined_gmm_train = _compute_clustering_metrics(inf_models, train_loader, config)
 
-        val_norm = (combined_val + 1) / 2
-        train_norm = (combined_train + 1) / 2
+        val_norm = (combined_gmm + 1) / 2
+        train_norm = (combined_gmm_train + 1) / 2
         score = val_norm
 
         print(f"  Fold{fold+1} | train={combined_train:.3f}, val={combined_val:.3f}, score={score:.3f}, val_loss={best_val_score:.4f}")
@@ -286,8 +286,10 @@ def _run_one_fold(
                     "nmi_train": nmi_train,
                     "ari_val": ari_val,
                     "nmi_val": nmi_val,
-                    "ari_val_norm": ari_val_norm,
-                    "nmi_val_norm": nmi_val_norm,
+                    "ari_gmm_train": ari_gmm_train,
+                    "nmi_gmm_train": nmi_gmm_train,
+                    "ari_gmm_val": ari_gmm,
+                    "nmi_gmm_val": nmi_gmm,
                 }
             )
 
