@@ -160,7 +160,7 @@ def objective(
     if use_cv:
         kfold = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
-        for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(full_df, full_df["species"])):
+        for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(full_df, full_df["action"])):
             fold_score = _run_one_fold(
                 trial, config,
                 train_df=full_df.iloc[train_idx].reset_index(drop=True),
