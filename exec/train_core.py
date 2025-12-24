@@ -55,9 +55,17 @@ def get_loss_fn_and_miner(
             margin=triplet_margin, distance=dist, type_of_triplets="semihard"
         )
     else:
-        loss_fn = ImprovedTripletLoss(tau1=triplet_margin, tau2=1.0, beta=0.5)
+        dist = distances.LpDistance(p=2)
+        loss_fn = ImprovedTripletLoss(
+            tau1=triplet_margin, 
+            tau2=0.7, 
+            beta=0.5, 
+            lambda_norm=0.1
+        )
         miner = miners.TripletMarginMiner(
-            margin=triplet_margin, type_of_triplets="hard"
+            margin=triplet_margin, 
+            distance=dist, 
+            type_of_triplets="hard"
         )
     return loss_fn, miner
 
@@ -285,7 +293,7 @@ def train_step(
         hard = miner(a_vec, a)
         total_loss = loss_fn(a_vec, a, hard)
     else:
-        total_loss = loss_fn(a_vec, a)
+        total_loss = loss_fn(a_vec, a, None)
     
     metrics["triplet/loss"] = total_loss.item()
 

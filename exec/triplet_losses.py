@@ -3,31 +3,36 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class ImprovedTripletLoss(nn.Module):
-    def __init__(self, tau1=0.3, tau2=0.5, beta=0.1):
+    def __init__(self, tau1=0.3, tau2=0.5, beta=0.5, lambda_norm=0.01):
         super().__init__()
         self.tau1 = tau1
         self.tau2 = tau2
         self.beta = beta
+        self.lambda_norm = lambda_norm
 
     def forward(self, embeddings, labels, triplets):
-        # triplets が tuple (a, p, n) であることを想定
         if triplets is None or len(triplets[0]) == 0:
-            return torch.tensor(0.0, device=embeddings.device, requires_grad=True)
+            return torch.zeros((), device=embeddings.device)
 
         a_idx, p_idx, n_idx = triplets
-        anchor   = embeddings[a_idx]
-        positive = embeddings[p_idx]
-        negative = embeddings[n_idx]
+        a = embeddings[a_idx]
+        p = embeddings[p_idx]
+        n = embeddings[n_idx]
 
-        d_ap = F.pairwise_distance(anchor, positive)
-        d_an = F.pairwise_distance(anchor, negative)
+        d_ap = F.pairwise_distance(a, p)
+        d_an = F.pairwise_distance(a, n)
 
-        # tau1: Margin, tau2: Intra-class compactness
-        inter_loss = torch.relu(d_ap - d_an + self.tau1)
-        intra_loss = torch.relu(d_ap - self.tau2).pow(2) 
+        inter = torch.relu(d_ap - d_an + self.tau1)
+        intra = torch.relu(d_ap - self.tau2)
 
+        norm = torch.norm(embeddings, dim=1)
+        norm_loss = ((norm - 1.0) ** 2).mean()
 
-        return inter_loss.mean() + self.beta * intra_loss.mean()
+        return (
+            inter.mean()
+            + self.beta * intra.mean()
+            + self.lambda_norm * norm_loss
+        )
 
 
 
