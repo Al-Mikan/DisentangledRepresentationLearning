@@ -55,10 +55,30 @@ def main() -> None:
     # Load CSV & encoders
     # --------------------------------------------
     print("📂 Loading dataset & encoders...")
-    datatype = search_space.get("datatype", "animalkingdom")
-    train_csv = f"./label/{datatype}/train/labels.csv"
 
-    full_df = pd.read_csv(train_csv)
+    # config_search.yml で指定された学習ラベルパスのみを使用
+    if search_space is None:
+        raise RuntimeError("config_search.yml が読み込めていません（search_space が None）。")
+
+    train_label_paths = search_space.get("train_label_paths", None)
+    if train_label_paths is None:
+        raise RuntimeError("config_search.yml に 'train_label_paths' が定義されていません。")
+
+    if isinstance(train_label_paths, str):
+        train_label_paths = [train_label_paths]
+
+    dfs = []
+    for p in train_label_paths:
+        df_i = pd.read_csv(p)
+        dfs.append(df_i)
+        print(f"  → Loaded train CSV from: {p} (rows={len(df_i)})")
+
+    if len(dfs) == 0:
+        raise RuntimeError("train_label_paths が指定されていますが、有効な CSV が読み込めませんでした。")
+
+    full_df = pd.concat(dfs, ignore_index=True)
+    print(f"  → Concatenated train CSVs (total rows={len(full_df)})")
+
     full_df["video_path"] = full_df["video_path"].str.replace("\\", "/").str.strip()
 
     le_act = LabelEncoder().fit(full_df["action"])

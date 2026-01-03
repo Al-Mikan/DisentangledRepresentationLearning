@@ -41,17 +41,37 @@ def setup_environment() -> None:
 # =================================
 # データロード
 # =================================
-def load_data_for_eval(data_dt: str, pooling: bool):
+def load_data_for_eval(train_label_paths, test_label_path: str, pooling: bool, default_datatype: str = "animalkingdom"):
+    """評価用に train/test ラベルと特徴量をロードする。
+
+    train_label_paths: 学習時と同様、train 用ラベル CSV（文字列 or リスト）。
+    test_label_path  : 評価用 test ラベル CSV（単一パス）。
+    """
+
     print("📂 Loading labels and features... pooling =", pooling)
 
-    train_csv = f"./label/{data_dt}/train/labels.csv"
-    test_csv  = f"./label/{data_dt}/test/labels_test.csv"
+    # train_csv 群の読み込み（train ソース）
+    if isinstance(train_label_paths, str):
+        train_label_paths = [train_label_paths]
 
-    train_df = pd.read_csv(train_csv)
-    test_df = pd.read_csv(test_csv)
+    train_dfs = []
+    for p in train_label_paths:
+        df_i = pd.read_csv(p)
+        df_i["source"] = "train"
+        train_dfs.append(df_i)
+        print(f"  → [eval] Loaded TRAIN labels from: {p} (rows={len(df_i)})")
 
-    train_df["source"] = "train"
+    if not train_dfs:
+        raise RuntimeError("[eval] train_label_paths から有効な train CSV が読み込めませんでした。")
+
+    train_df = pd.concat(train_dfs, ignore_index=True)
+
+    # test_csv の読み込み（test ソース）
+    test_df = pd.read_csv(test_label_path)
     test_df["source"] = "test"
+    print(f"  → [eval] Loaded TEST labels from: {test_label_path} (rows={len(test_df)})")
+
+    # train+test を連結
     full_df = pd.concat([train_df, test_df], ignore_index=True)
     full_df["video_path"] = full_df["video_path"].str.replace("\\", "/").str.strip()
 
@@ -69,7 +89,7 @@ def load_data_for_eval(data_dt: str, pooling: bool):
         low = path_str.lower()
         if "polar" in low: return "polar"
         if "animalkingdom" in low: return "animalkingdom"
-        return data_dt
+        return default_datatype
 
     # feature ロード
     def load_vectors(base_dir: Path) -> Optional[List[np.ndarray]]:
@@ -185,6 +205,11 @@ def extract_embeddings(df, features, models, params):
                 continue
             x_list = features[flow_key][p]
             v_list = features["vmae"][p]
+
+            assert len(x_list) == len(v_list), (
+                f"[GatedFusion] Sliding window mismatch for {p}: "
+                f"flow={len(x_list)}, vmae={len(v_list)}"
+            )
 
             for x_vec, v_vec in zip(x_list, v_list):
                 xx = torch.tensor(x_vec).unsqueeze(0).float().to(DEVICE)
@@ -443,6 +468,10 @@ def main(run_dir: Path):
     DATATYPE = params.get("datatype", "animalkingdom")
     POOLING = bool(params.get("pooling", True))
 
+    # train_label_paths / test_label_path を config から取得（必須扱い）
+    train_label_paths = params.get("train_label_paths", None)
+    test_label_path = params.get("test_label_path", None)
+
     # ---- run_note.txt から上書き（あれば）----
     note_path = run_dir / "run_note.txt"
     if note_path.exists():
@@ -461,10 +490,16 @@ def main(run_dir: Path):
         except Exception as e:
             print("⚠ Could not read run_note.txt:", e)
 
+    # train_label_paths / test_label_path の最終確認
+    if train_label_paths is None:
+        raise RuntimeError("[eval] 'train_label_paths' が baseline_config.json / params に含まれていません。")
+    if test_label_path is None:
+        raise RuntimeError("[eval] 'test_label_path' が baseline_config.json / params に含まれていません。")
+
     eval_root = run_dir / "eval"
     eval_root.mkdir(exist_ok=True)
 
-    full_df, le_act, features = load_data_for_eval(DATATYPE, POOLING)
+    full_df, le_act, features = load_data_for_eval(train_label_paths, test_label_path, POOLING, default_datatype=DATATYPE)
 
     results = []
     model_paths = list(ablation_root.glob("**/*.pth"))
@@ -549,6 +584,7 @@ def save_jsonl(path: Path, df, labels, sources, embeddings):
             obj = {
                 "videopath": df.iloc[i]["video_path"],
                 "label": df.iloc[i]["action"],
+                "act_id": int(labels[i]),
                 "source": df.iloc[i]["source"],
                 "vector": embeddings[i].tolist(),
             }

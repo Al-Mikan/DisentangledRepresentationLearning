@@ -101,9 +101,26 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
     merged_config = merge_config_in_memory(base_yaml, baseline_params)
 
     # === データ読み込み ===
-    datatype = merged_config.get("datatype", "animalkingdom")
-    train_csv = f"./label/{datatype}/train/labels.csv"
-    full_df = pd.read_csv(train_csv)
+    # train.py と同様に、config_search.yml の train_label_paths から学習ラベルを構築
+    train_label_paths = merged_config.get("train_label_paths", None)
+    if train_label_paths is None:
+        raise RuntimeError("config_search.yml / merged_config に 'train_label_paths' が定義されていません。")
+
+    if isinstance(train_label_paths, str):
+        train_label_paths = [train_label_paths]
+
+    dfs = []
+    for p in train_label_paths:
+        df_i = pd.read_csv(p)
+        dfs.append(df_i)
+        print(f"  → [ablation] Loaded train CSV from: {p} (rows={len(df_i)})")
+
+    if len(dfs) == 0:
+        raise RuntimeError("[ablation] train_label_paths が指定されていますが、有効な CSV が読み込めませんでした。")
+
+    full_df = pd.concat(dfs, ignore_index=True)
+    print(f"  → [ablation] Concatenated train CSVs (total rows={len(full_df)})")
+
     le_act = LabelEncoder().fit(full_df["action"])
     le_sp = LabelEncoder().fit(full_df["species"])
 

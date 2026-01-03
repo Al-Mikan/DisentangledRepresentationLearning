@@ -3,7 +3,8 @@
 project_name: animalkingdom_split1224
 experiment_name: triplet_vs_gan
 output_root: ./train_result
-datatype: animalkingdom_split
+train_label_paths: ./labels/train/animalkingdom.csv
+test_label_paths: ./labels/test/animalkingdom.csv
 
 # === モード設定 ===
 train_mode: [gated] # mae / flow / gated

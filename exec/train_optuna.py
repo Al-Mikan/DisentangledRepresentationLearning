@@ -128,6 +128,8 @@ def objective(
         # データセット・モデル構造
         # =========================
         "datatype": yaml_cfg.get("datatype", "animalkingdom"),
+        "train_label_paths": yaml_cfg.get("train_label_paths", None),
+        "test_label_paths": yaml_cfg.get("test_label_paths", None),
 
         "fused_dim": int(yaml_cfg.get("fused_dim", 512)),   # GatedFusionで統合後の特徴ベクトル次元数
         "feature_dim": int(yaml_cfg.get("feature_dim", 256)), # 各モーダルの出力特徴次元数
