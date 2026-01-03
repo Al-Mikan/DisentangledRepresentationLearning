@@ -115,27 +115,33 @@ def plot_embedding(X2d, labels, sources, title, show_labels):
 @app.route("/", methods=["GET"])
 def index():
     dates = sorted(p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir())
+
     selected_date = request.args.get("date")
+    selected_run = request.args.get("run")
+
     runs = []
     if selected_date:
-        runs = sorted(
-            p.name for p in (TRAIN_RESULT_ROOT / selected_date).iterdir()
-            if p.is_dir() and p.name.startswith("run_")
-        )
+        date_dir = TRAIN_RESULT_ROOT / selected_date
+        if date_dir.exists():
+            runs = sorted(
+                p.name for p in date_dir.iterdir()
+                if p.is_dir() and p.name.startswith("run_")
+            )
 
     return render_template(
         "index.html",
         dates=dates,
         runs=runs,
         selected_date=selected_date,
-        selected_run=None,
-        model_names=[],
+        selected_run=selected_run,
 
+        model_names=[],
         train_labels=[],
         test_labels=[],
         selected_train_labels=[],
         selected_test_labels=[],
 
+        # 以下は初期値
         view_mode="all",
         method="tsne",
         perplexity=30,
@@ -145,17 +151,16 @@ def index():
         angle=0.5,
         n_neighbors=15,
         min_dist=0.1,
-
         use_title=False,
         title="",
         show_labels=True,
-
         image_data=None,
         summary=None,
         ari=None,
         nmi=None,
         png_filename="embedding.png",
     )
+
 
 # ======================================================
 # /read

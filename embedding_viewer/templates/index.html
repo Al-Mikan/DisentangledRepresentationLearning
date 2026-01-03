@@ -9,25 +9,45 @@
 <body>
 <h1>Embedding Viewer</h1>
 
-<!-- date / run -->
-<form method="post" action="/read">
+<!-- ============================= -->
+<!-- date / run 選択（GET） -->
+<!-- ============================= -->
+<form method="get" action="/">
   <label>Date</label>
-  <select name="date">
+  <select name="date" onchange="this.form.submit()">
     {% for d in dates %}
-      <option value="{{d}}" {% if d==selected_date %}selected{% endif %}>{{d}}</option>
+      <option value="{{d}}" {% if d == selected_date %}selected{% endif %}>
+        {{d}}
+      </option>
     {% endfor %}
   </select>
 
-  <label>Run</label>
-  <select name="run">
-    {% for r in runs %}
-      <option value="{{r}}" {% if r==selected_run %}selected{% endif %}>{{r}}</option>
-    {% endfor %}
-  </select>
-
-  <button type="submit">Read</button>
+  {% if runs %}
+    <label>Run</label>
+    <select name="run" onchange="this.form.submit()">
+      {% for r in runs %}
+        <option value="{{r}}" {% if r == selected_run %}selected{% endif %}>
+          {{r}}
+        </option>
+      {% endfor %}
+    </select>
+  {% endif %}
 </form>
 
+<!-- ============================= -->
+<!-- Read ボタン（POST） -->
+<!-- ============================= -->
+{% if selected_date and selected_run %}
+<form method="post" action="/read" style="margin-top:12px;">
+  <input type="hidden" name="date" value="{{selected_date}}">
+  <input type="hidden" name="run" value="{{selected_run}}">
+  <button type="submit">Read</button>
+</form>
+{% endif %}
+
+<!-- ============================= -->
+<!-- ラベル & 描画設定 -->
+<!-- ============================= -->
 {% if train_labels %}
 <hr>
 
@@ -41,7 +61,7 @@
     <input type="checkbox" name="train_labels" value="{{lab}}"
       {% if lab in selected_train_labels %}checked{% endif %}>
     {{lab}}
-  </label><br>
+  </label>
 {% endfor %}
 
 <h3>Test labels</h3>
@@ -50,7 +70,7 @@
     <input type="checkbox" name="test_labels" value="{{lab}}"
       {% if lab in selected_test_labels %}checked{% endif %}>
     {{lab}}
-  </label><br>
+  </label>
 {% endfor %}
 
 <hr>
@@ -64,23 +84,28 @@
 
 <label>Method</label>
 <select name="method">
-  <option value="tsne">t-SNE</option>
-  <option value="umap">UMAP</option>
+  <option value="tsne" {% if method == "tsne" %}selected{% endif %}>t-SNE</option>
+  <option value="umap" {% if method == "umap" %}selected{% endif %}>UMAP</option>
 </select>
 
 <label>
-  <input type="checkbox" name="show_labels" checked> Show legend
+  <input type="checkbox" name="show_labels" {% if show_labels %}checked{% endif %}>
+  Show legend
 </label>
 
 <label>
-  <input type="checkbox" name="use_title"> Title
+  <input type="checkbox" name="use_title" {% if use_title %}checked{% endif %}>
+  Title
 </label>
-<input name="title">
+<input name="title" value="{{title}}">
 
 <button type="submit">Draw</button>
 </form>
 {% endif %}
 
+<!-- ============================= -->
+<!-- 結果表示 -->
+<!-- ============================= -->
 {% if image_data %}
 <hr>
 <img src="data:image/png;base64,{{image_data}}">
