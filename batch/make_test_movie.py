@@ -5,12 +5,12 @@ import subprocess
 def hms_to_seconds(hms):
     return sum(int(x) * 60 ** i for i, x in enumerate(reversed(hms.split(":"))))
 
-input_path = "./video/elephant/31_2022_08_10_12.mp4"
-start_time_str = "00:41:40"
-end_time_str = "00:42:17"
+input_path = "./video/elephant/31_2022_08_13_14.mp4"
+start_time_str = "00:43:03"
+end_time_str = "00:43:48"
 clip_length = 30  # 秒
 
-label = "walking"
+label = "eating"
 species = "Elephant"
 parent_class = "mammal"
 csv_path = "labels_test.csv"
@@ -33,6 +33,9 @@ with open(csv_path, mode="a", newline="", encoding="utf-8") as csvfile:
         clip_start = t
         clip_end = min(t + clip_length, end_time_sec)
         duration = clip_end - clip_start
+
+        if duration < clip_length:
+            continue
 
         clip_name = f"clip_{i:03d}.mp4"
         output_path = os.path.join(output_dir, clip_name)
