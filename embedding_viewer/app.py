@@ -22,7 +22,7 @@ TRAIN_RESULT_ROOT = Path(
 )
 
 # ======================================================
-# Loader
+# JSONL loader
 # ======================================================
 def load_embeddings(path: Path):
     vecs, labels, sources = [], [], []
@@ -39,7 +39,18 @@ def load_embeddings(path: Path):
     )
 
 # ======================================================
-# Metrics
+# ラベル集合のロード（train / test 別）
+# ======================================================
+def load_label_set(eval_dir: Path, split: str):
+    labels = set()
+    for p in eval_dir.glob(f"*_{split}.jsonl"):
+        with open(p, "r") as f:
+            for line in f:
+                labels.add(json.loads(line)["label"])
+    return sorted(labels)
+
+# ======================================================
+# ARI / NMI
 # ======================================================
 def compute_ari_nmi(X, labels):
     n_clusters = len(np.unique(labels))
@@ -52,12 +63,13 @@ def compute_ari_nmi(X, labels):
         linkage="average",
     ).fit_predict(X)
 
-    ari = adjusted_rand_score(labels, pred)
-    nmi = normalized_mutual_info_score(labels, pred)
-    return ari, nmi
+    return (
+        adjusted_rand_score(labels, pred),
+        normalized_mutual_info_score(labels, pred),
+    )
 
 # ======================================================
-# Plot
+# Plot（同一ラベル同色、train/testはmarker）
 # ======================================================
 def plot_embedding(X2d, labels, sources, title, show_labels):
     plt.figure(figsize=(8, 8))
@@ -88,14 +100,9 @@ def plot_embedding(X2d, labels, sources, title, show_labels):
             )
 
     if show_labels:
-        plt.legend(
-            fontsize=8,
-            loc="center left",
-            bbox_to_anchor=(1.02, 0.5),
-        )
+        plt.legend(fontsize=8, bbox_to_anchor=(1.02, 0.5), loc="center left")
 
-    plt.xticks([])
-    plt.yticks([])
+    plt.xticks([]); plt.yticks([])
 
     buf = io.BytesIO()
     plt.savefig(buf, format="png", dpi=150, bbox_inches="tight")
@@ -103,44 +110,32 @@ def plot_embedding(X2d, labels, sources, title, show_labels):
     return base64.b64encode(buf.getvalue()).decode()
 
 # ======================================================
-# Index（GET）
+# /
 # ======================================================
 @app.route("/", methods=["GET"])
 def index():
-    dates = sorted([p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir()])
-    selected_date = request.args.get("date", dates[-1] if dates else None)
-
-    runs, selected_run = [], None
+    dates = sorted(p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir())
+    selected_date = request.args.get("date")
+    runs = []
     if selected_date:
-        ddir = TRAIN_RESULT_ROOT / selected_date
         runs = sorted(
-            [p.name for p in ddir.iterdir()
-             if p.is_dir() and p.name.startswith("run_")]
+            p.name for p in (TRAIN_RESULT_ROOT / selected_date).iterdir()
+            if p.is_dir() and p.name.startswith("run_")
         )
-        selected_run = request.args.get("run", runs[0] if runs else None)
-
-    model_names = []
-    if selected_date and selected_run:
-        eval_dir = TRAIN_RESULT_ROOT / selected_date / selected_run / "eval"
-        if eval_dir.exists():
-            names = set()
-            for p in eval_dir.glob("*.jsonl"):
-                if p.stem.endswith("_train"):
-                    names.add(p.stem[:-6])
-                elif p.stem.endswith("_test"):
-                    names.add(p.stem[:-5])
-            model_names = sorted(names)
 
     return render_template(
         "index.html",
         dates=dates,
         runs=runs,
-        model_names=model_names,
         selected_date=selected_date,
-        selected_run=selected_run,
-        selected_model=None,
+        selected_run=None,
+        model_names=[],
 
-        # 描画関連の初期値
+        train_labels=[],
+        test_labels=[],
+        selected_train_labels=[],
+        selected_test_labels=[],
+
         view_mode="all",
         method="tsne",
         perplexity=30,
@@ -155,33 +150,89 @@ def index():
         title="",
         show_labels=True,
 
-        # 結果
         image_data=None,
         summary=None,
-        all_labels=[],
-        selected_labels=[],
         ari=None,
         nmi=None,
         png_filename="embedding.png",
     )
 
 # ======================================================
-# Plot（POST）
+# /read
+# ======================================================
+@app.route("/read", methods=["POST"])
+def read_labels():
+    date = request.form["date"]
+    run = request.form["run"]
+
+    eval_dir = TRAIN_RESULT_ROOT / date / run / "eval"
+
+    train_labels = load_label_set(eval_dir, "train")
+    test_labels = load_label_set(eval_dir, "test")
+
+    model_names = sorted({
+        p.stem.replace("_train", "").replace("_test", "")
+        for p in eval_dir.glob("*.jsonl")
+    })
+
+    dates = sorted(p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir())
+    runs = sorted(
+        p.name for p in (TRAIN_RESULT_ROOT / date).iterdir()
+        if p.is_dir() and p.name.startswith("run_")
+    )
+
+    return render_template(
+        "index.html",
+        dates=dates,
+        runs=runs,
+        selected_date=date,
+        selected_run=run,
+        model_names=model_names,
+
+        train_labels=train_labels,
+        test_labels=test_labels,
+        selected_train_labels=train_labels,
+        selected_test_labels=test_labels,
+
+        view_mode="all",
+        method="tsne",
+        perplexity=30,
+        learning_rate=200,
+        early_exaggeration=12,
+        init="pca",
+        angle=0.5,
+        n_neighbors=15,
+        min_dist=0.1,
+
+        use_title=False,
+        title="",
+        show_labels=True,
+
+        image_data=None,
+        summary=None,
+        ari=None,
+        nmi=None,
+        png_filename="embedding.png",
+    )
+
+# ======================================================
+# /plot
 # ======================================================
 @app.route("/plot", methods=["POST"])
 def plot():
-    # -------- state --------
     date = request.form["date"]
     run = request.form["run"]
     model = request.form["model"]
+
+    selected_train = request.form.getlist("train_labels")
+    selected_test = request.form.getlist("test_labels")
+
     view_mode = request.form["view_mode"]
     method = request.form["method"]
-
     show_labels = "show_labels" in request.form
     use_title = "use_title" in request.form
     title = request.form.get("title", "") if use_title else ""
 
-    # -------- load --------
     eval_dir = TRAIN_RESULT_ROOT / date / run / "eval"
     paths = []
     if view_mode in ("all", "train"):
@@ -200,13 +251,12 @@ def plot():
     labels = np.concatenate(labels)
     sources = np.concatenate(sources)
 
-    # -------- label filter --------
-    all_labels = sorted(np.unique(labels).tolist())
-    selected_labels = request.form.getlist("selected_labels") or all_labels
-    mask = np.isin(labels, selected_labels)
+    mask = (
+        ((sources == "train") & np.isin(labels, selected_train)) |
+        ((sources == "test") & np.isin(labels, selected_test))
+    )
     X, labels, sources = X[mask], labels[mask], sources[mask]
 
-    # -------- dim reduction --------
     if method == "tsne":
         reducer = TSNE(
             n_components=2,
@@ -227,37 +277,45 @@ def plot():
         X2d = reducer.fit_transform(X)
         summary = f"UMAP (samples={len(X)})"
 
-    # -------- metrics --------
     ari, nmi = compute_ari_nmi(X, labels)
-
     image_data = plot_embedding(X2d, labels, sources, title, show_labels)
-    png_filename = f"{title}.png" if title else "embedding.png"
 
-    # -------- UI state restore --------
-    dates = sorted([p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir()])
+    train_labels = load_label_set(eval_dir, "train")
+    test_labels = load_label_set(eval_dir, "test")
+
+    model_names = sorted({
+        p.stem.replace("_train", "").replace("_test", "")
+        for p in eval_dir.glob("*.jsonl")
+    })
+
+    dates = sorted(p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir())
     runs = sorted(
-        [p.name for p in (TRAIN_RESULT_ROOT / date).iterdir()
-         if p.is_dir() and p.name.startswith("run_")]
+        p.name for p in (TRAIN_RESULT_ROOT / date).iterdir()
+        if p.is_dir() and p.name.startswith("run_")
     )
 
     return render_template(
         "index.html",
         dates=dates,
         runs=runs,
-        model_names = sorted({model}),
         selected_date=date,
         selected_run=run,
-        selected_model=model,
+        model_names=model_names,
+
+        train_labels=train_labels,
+        test_labels=test_labels,
+        selected_train_labels=selected_train,
+        selected_test_labels=selected_test,
 
         view_mode=view_mode,
         method=method,
-        perplexity=request.form.get("perplexity"),
-        learning_rate=request.form.get("learning_rate"),
-        early_exaggeration=request.form.get("early_exaggeration"),
-        init=request.form.get("init"),
-        angle=request.form.get("angle"),
-        n_neighbors=request.form.get("n_neighbors"),
-        min_dist=request.form.get("min_dist"),
+        perplexity=request.form["perplexity"],
+        learning_rate=request.form["learning_rate"],
+        early_exaggeration=request.form["early_exaggeration"],
+        init=request.form["init"],
+        angle=request.form["angle"],
+        n_neighbors=request.form["n_neighbors"],
+        min_dist=request.form["min_dist"],
 
         use_title=use_title,
         title=title,
@@ -265,11 +323,9 @@ def plot():
 
         image_data=image_data,
         summary=summary,
-        all_labels=all_labels,
-        selected_labels=selected_labels,
         ari=ari,
         nmi=nmi,
-        png_filename=png_filename,
+        png_filename=(title + ".png") if title else "embedding.png",
     )
 
 if __name__ == "__main__":

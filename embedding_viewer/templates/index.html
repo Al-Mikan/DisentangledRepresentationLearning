@@ -4,155 +4,89 @@
   <meta charset="utf-8">
   <title>Embedding Viewer</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <script>
-    function toggleParams() {
-      const m = document.getElementById("method").value;
-      document.getElementById("tsne").style.display = (m === "tsne") ? "block" : "none";
-      document.getElementById("umap").style.display = (m === "umap") ? "block" : "none";
-    }
-    function toggleTitle() {
-      document.getElementById("title_box").style.display =
-        document.getElementById("use_title").checked ? "block" : "none";
-    }
-    function selectAll(flag) {
-      document.querySelectorAll("input[name='selected_labels']")
-        .forEach(cb => cb.checked = flag);
-    }
-    window.onload = function() {
-      toggleParams();
-      toggleTitle();
-    };
-  </script>
 </head>
 
 <body>
 <h1>Embedding Viewer</h1>
 
-<!-- Date -->
-<form method="get">
+<!-- date / run -->
+<form method="post" action="/read">
   <label>Date</label>
-  <select name="date" onchange="this.form.submit()">
+  <select name="date">
     {% for d in dates %}
       <option value="{{d}}" {% if d==selected_date %}selected{% endif %}>{{d}}</option>
     {% endfor %}
   </select>
-</form>
 
-<!-- Run -->
-{% if runs %}
-<form method="get">
-  <input type="hidden" name="date" value="{{selected_date}}">
   <label>Run</label>
-  <select name="run" onchange="this.form.submit()">
+  <select name="run">
     {% for r in runs %}
       <option value="{{r}}" {% if r==selected_run %}selected{% endif %}>{{r}}</option>
     {% endfor %}
   </select>
-</form>
-{% endif %}
 
-{% if model_names %}
+  <button type="submit">Read</button>
+</form>
+
+{% if train_labels %}
 <hr>
 
 <form method="post" action="/plot">
 <input type="hidden" name="date" value="{{selected_date}}">
 <input type="hidden" name="run" value="{{selected_run}}">
 
-<div class="container">
+<h3>Train labels</h3>
+{% for lab in train_labels %}
+  <label class="checkbox-line">
+    <input type="checkbox" name="train_labels" value="{{lab}}"
+      {% if lab in selected_train_labels %}checked{% endif %}>
+    {{lab}}
+  </label><br>
+{% endfor %}
 
-  <!-- LEFT -->
-  <div class="panel">
-    <label>Model</label>
-    <select name="model">
-      {% for m in model_names %}
-        <option value="{{m}}" {% if m==selected_model %}selected{% endif %}>{{m}}</option>
-      {% endfor %}
-    </select>
+<h3>Test labels</h3>
+{% for lab in test_labels %}
+  <label class="checkbox-line">
+    <input type="checkbox" name="test_labels" value="{{lab}}"
+      {% if lab in selected_test_labels %}checked{% endif %}>
+    {{lab}}
+  </label><br>
+{% endfor %}
 
-    <h3>Labels</h3>
-    <button type="button" onclick="selectAll(true)">All</button>
-    <button type="button" onclick="selectAll(false)">Clear</button>
+<hr>
 
-    <div class="labels">
-      {% for lab in all_labels %}
-        <label>
-          <input type="checkbox" name="selected_labels" value="{{lab}}"
-            {% if lab in selected_labels %}checked{% endif %}>
-          {{lab}}
-        </label>
-      {% endfor %}
-    </div>
+<label>Model</label>
+<select name="model">
+  {% for m in model_names %}
+    <option value="{{m}}">{{m}}</option>
+  {% endfor %}
+</select>
 
-    <label>View</label>
-    <select name="view_mode">
-      <option value="all" {% if view_mode=='all' %}selected{% endif %}>train + test</option>
-      <option value="train" {% if view_mode=='train' %}selected{% endif %}>train only</option>
-      <option value="test" {% if view_mode=='test' %}selected{% endif %}>test only</option>
-    </select>
-  </div>
+<label>Method</label>
+<select name="method">
+  <option value="tsne">t-SNE</option>
+  <option value="umap">UMAP</option>
+</select>
 
-  <!-- RIGHT -->
-  <div class="panel">
-    <label>Method</label>
-    <select id="method" name="method" onchange="toggleParams()">
-      <option value="tsne" {% if method=='tsne' %}selected{% endif %}>t-SNE</option>
-      <option value="umap" {% if method=='umap' %}selected{% endif %}>UMAP</option>
-    </select>
+<label>
+  <input type="checkbox" name="show_labels" checked> Show legend
+</label>
 
-    <div id="tsne">
-      <label>Perplexity</label><input name="perplexity" value="{{perplexity}}">
-      <label>LR</label><input name="learning_rate" value="{{learning_rate}}">
-      <label>EarlyEx</label><input name="early_exaggeration" value="{{early_exaggeration}}">
-      <label>Init</label>
-      <select name="init">
-        <option value="pca" {% if init=='pca' %}selected{% endif %}>pca</option>
-        <option value="random" {% if init=='random' %}selected{% endif %}>random</option>
-      </select>
-      <label>Angle</label><input name="angle" value="{{angle}}">
-    </div>
+<label>
+  <input type="checkbox" name="use_title"> Title
+</label>
+<input name="title">
 
-    <div id="umap">
-      <label>n_neighbors</label><input name="n_neighbors" value="{{n_neighbors}}">
-      <label>min_dist</label><input name="min_dist" value="{{min_dist}}">
-    </div>
-
-    <label>
-      <input type="checkbox" name="show_labels" {% if show_labels %}checked{% endif %}>
-      Show legend
-    </label>
-
-    <label>
-      <input type="checkbox" id="use_title" name="use_title"
-        {% if use_title %}checked{% endif %}
-        onclick="toggleTitle()">
-      Title
-    </label>
-
-    <div id="title_box" style="display:none;">
-      <input name="title" value="{{title}}">
-    </div>
-
-    <button type="submit">Draw</button>
-  </div>
-
-</div>
+<button type="submit">Draw</button>
 </form>
 {% endif %}
 
 {% if image_data %}
 <hr>
 <img src="data:image/png;base64,{{image_data}}">
-<br>
-<a download="{{png_filename}}" href="data:image/png;base64,{{image_data}}">Download PNG</a>
-
-<pre>{{ summary }}</pre>
-
-{% if ari is not none %}
-<div class="metrics">
-  <b>ARI:</b> {{ "%.4f"|format(ari) }}
-  <b>NMI:</b> {{ "%.4f"|format(nmi) }}
-</div>
-{% endif %}
+<pre>{{summary}}</pre>
+<b>ARI:</b> {{ari}}　
+<b>NMI:</b> {{nmi}}
 {% endif %}
 
 </body>
