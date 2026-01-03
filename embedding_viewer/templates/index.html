@@ -87,6 +87,19 @@
   {% endfor %}
 </select>
 
+<label>View mode</label>
+<select name="view_mode">
+  <option value="all" {% if view_mode == "all" %}selected{% endif %}>
+    train + test
+  </option>
+  <option value="train" {% if view_mode == "train" %}selected{% endif %}>
+    train only
+  </option>
+  <option value="test" {% if view_mode == "test" %}selected{% endif %}>
+    test only
+  </option>
+</select>
+
 <label>Method</label>
 <select name="method">
   <option value="tsne" {% if method == "tsne" %}selected{% endif %}>t-SNE</option>
