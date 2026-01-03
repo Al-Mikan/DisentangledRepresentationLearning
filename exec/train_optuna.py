@@ -239,15 +239,18 @@ def _run_one_fold(
     le_act,
     le_sp,
     results_root,
-    fold
+    fold,
 ):
-    LOG_FOLD = 1  # ログをwandbに送るfold番号（1始まり）
+    LOG_FOLD = 1
+
     try:
-        train_loader, val_loader, fusion_model = build_datasets_and_loaders(config, train_df, val_df, le_act, le_sp)
+        train_loader, val_loader, fusion_model = build_datasets_and_loaders(
+            config, train_df, val_df, le_act, le_sp
+        )
 
         check_dataset_shapes(train_loader, config["train_mode"])
 
-        best_val_score = train_model(
+        best_val_loss = train_model(
             config=config,
             train_loader=train_loader,
             val_loader=val_loader,
@@ -260,43 +263,72 @@ def _run_one_fold(
             fold_idx=fold,
             log_fold=LOG_FOLD,
         )
-        inf_models = None
 
         model_path = trial.user_attrs.get("model_save_path")
         if not model_path:
             return None
-        
+
+        # =========================
+        # inference model 構築
+        # =========================
         if config["train_mode"] == "gated":
             D = int(config["fused_dim"])
         elif config["train_mode"] == "flow":
             D = 2048
         elif config["train_mode"] == "mae":
             D = 768
+        else:
+            raise ValueError("Unknown train_mode")
 
         inf_models = _build_inference_models(config, D=D, fusion=fusion_model)
-        state = torch.load(model_path, map_location="cuda" if torch.cuda.is_available() else "cpu")
+        state = torch.load(
+            model_path,
+            map_location="cuda" if torch.cuda.is_available() else "cpu"
+        )
         inf_models.load_state_dict(state, strict=False)
 
-        ari_val, nmi_val, combined_val, ari_gmm, nmi_gmm, combined_gmm = _compute_clustering_metrics(inf_models, val_loader, config)
-        ari_train, nmi_train, combined_train, ari_gmm_train, nmi_gmm_train, combined_gmm_train = _compute_clustering_metrics(inf_models, train_loader, config)
+        # =========================
+        # clustering evaluation
+        # =========================
+        metrics_val = _compute_clustering_metrics(inf_models, val_loader, config)
+        metrics_tr  = _compute_clustering_metrics(inf_models, train_loader, config)
 
-        val_norm = (combined_gmm + 1) / 2
-        train_norm = (combined_gmm_train + 1) / 2
-        score = val_norm
+        # === main score (Agglomerative) ===
+        score = float(metrics_val["agg_nmi"])  # or agg_ari
 
-        print(f"  Fold{fold+1} | train={combined_train:.3f}, val={combined_val:.3f}, score={score:.3f}, val_loss={best_val_score:.4f}")
+        print(
+            f"Fold{fold+1} | "
+            f"train(agg)={metrics_tr['agg_nmi']:.3f}, "
+            f"val(agg)={metrics_val['agg_nmi']:.3f}, "
+            f"score={score:.3f}, "
+            f"val_loss={best_val_loss:.4f}"
+        )
+
+        # =========================
+        # wandb logging
+        # =========================
         if fold == LOG_FOLD:
             wandb.log(
                 {
                     "fold": fold + 1,
-                    "ari_train": ari_train,
-                    "nmi_train": nmi_train,
-                    "ari_val": ari_val,
-                    "nmi_val": nmi_val,
-                    "ari_gmm_train": ari_gmm_train,
-                    "nmi_gmm_train": nmi_gmm_train,
-                    "ari_gmm_val": ari_gmm,
-                    "nmi_gmm_val": nmi_gmm,
+
+                    # --- Agglomerative (main) ---
+                    "agg_ari_train": metrics_tr["agg_ari"],
+                    "agg_nmi_train": metrics_tr["agg_nmi"],
+                    "agg_ari_val":   metrics_val["agg_ari"],
+                    "agg_nmi_val":   metrics_val["agg_nmi"],
+
+                    # --- KMeans (ref) ---
+                    "km_ari_train": metrics_tr["km_ari"],
+                    "km_nmi_train": metrics_tr["km_nmi"],
+                    "km_ari_val":   metrics_val["km_ari"],
+                    "km_nmi_val":   metrics_val["km_nmi"],
+
+                    # --- GMM (ref) ---
+                    "gmm_ari_train": metrics_tr["gmm_ari"],
+                    "gmm_nmi_train": metrics_tr["gmm_nmi"],
+                    "gmm_ari_val":   metrics_val["gmm_ari"],
+                    "gmm_nmi_val":   metrics_val["gmm_nmi"],
                 }
             )
 
@@ -307,10 +339,6 @@ def _run_one_fold(
         return None
 
     finally:
-        if 'inf_models' in locals() and inf_models is not None:
+        if "inf_models" in locals():
             del inf_models
-        if 'train_loader' in locals():
-            del train_loader
-        if 'val_loader' in locals():
-            del val_loader
         cleanup_memory()

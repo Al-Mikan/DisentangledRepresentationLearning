@@ -20,6 +20,7 @@ from model import (
     ActionClassifier, SimpleMLPNet,  ActionMLPNet,
     SpeciesDiscriminator, GatedFusion
 )
+from sklearn.cluster import AgglomerativeClustering
 from pytorch_metric_learning import losses, miners, distances
 import optuna
 import wandb
@@ -697,25 +698,55 @@ def _compute_embeddings(models: nn.ModuleDict, loader: DataLoader, config: Dict[
     return np.concatenate(xs, axis=0), np.concatenate(ys, axis=0)
 
 
-def _compute_clustering_metrics(models: nn.ModuleDict, loader: DataLoader, config: Dict[str, Any]):
+def _compute_clustering_metrics(
+    models: nn.ModuleDict,
+    loader: DataLoader,
+    config: Dict[str, Any],
+):
     X, y = _compute_embeddings(models, loader, config)
+    y = np.asarray(y)
+
     n_clusters = len(np.unique(y))
     if n_clusters <= 1:
-        return 0.0, 0.0, 0.0
-    
+        return {
+            "agg_ari": 0.0, "agg_nmi": 0.0,
+            "km_ari": 0.0,  "km_nmi": 0.0,
+            "gmm_ari": 0.0, "gmm_nmi": 0.0,
+        }
 
-    # KMeans
-    pred = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(X)
-    ari = adjusted_rand_score(y, pred)
-    nmi = normalized_mutual_info_score(y, pred)
+    results = {}
 
-    # GMM
-    gmm_pred = GaussianMixture(
+    # =========================
+    # Agglomerative (MAIN)
+    # =========================
+    agg = AgglomerativeClustering(
+        n_clusters=n_clusters,
+        metric="cosine",
+        linkage="average",
+    )
+    pred_agg = agg.fit_predict(X)
+    results["agg_ari"] = float(adjusted_rand_score(y, pred_agg))
+    results["agg_nmi"] = float(normalized_mutual_info_score(y, pred_agg))
+
+    # =========================
+    # KMeans (reference)
+    # =========================
+    km = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    pred_km = km.fit_predict(X)
+    results["km_ari"] = float(adjusted_rand_score(y, pred_km))
+    results["km_nmi"] = float(normalized_mutual_info_score(y, pred_km))
+
+    # =========================
+    # GMM (reference)
+    # =========================
+    gmm = GaussianMixture(
         n_components=n_clusters,
-        covariance_type="full", 
-        random_state=42
-    ).fit_predict(X)
-    ari_gmm = adjusted_rand_score(y, gmm_pred)
-    nmi_gmm = normalized_mutual_info_score(y, gmm_pred)
-    return float(ari), float(nmi), float((ari + nmi) / 2.0), float(ari_gmm), float(nmi_gmm), float((ari_gmm + nmi_gmm) / 2.0)
+        covariance_type="full",
+        random_state=42,
+    )
+    pred_gmm = gmm.fit_predict(X)
+    results["gmm_ari"] = float(adjusted_rand_score(y, pred_gmm))
+    results["gmm_nmi"] = float(normalized_mutual_info_score(y, pred_gmm))
+
+    return results
 
