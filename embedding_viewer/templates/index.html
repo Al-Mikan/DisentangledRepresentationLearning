@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>Embedding Viewer</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script>
+    function toggleParams() {
+      const m = document.getElementById("method").value;
+      document.getElementById("tsne").style.display = (m === "tsne") ? "block" : "none";
+      document.getElementById("umap").style.display = (m === "umap") ? "block" : "none";
+    }
+    function selectAll(flag) {
+      document.querySelectorAll("input[name='selected_labels']")
+        .forEach(cb => cb.checked = flag);
+    }
+    window.onload = toggleParams;
+  </script>
+</head>
+
+<body>
+<h1>Embedding Viewer</h1>
+
+<form method="post" action="/plot">
+<div class="container">
+
+  <!-- Left -->
+  <div class="panel">
+    <label>Model</label>
+    <select name="model">
+      {% for m in model_names %}
+        <option value="{{m}}" {% if m==selected_model %}selected{% endif %}>{{m}}</option>
+      {% endfor %}
+    </select>
+
+    <h3>Labels</h3>
+    <button type="button" onclick="selectAll(true)">All</button>
+    <button type="button" onclick="selectAll(false)">Clear</button>
+
+    <div class="labels">
+      {% for lab in all_labels %}
+        <label>
+          <input type="checkbox" name="selected_labels" value="{{lab}}"
+            {% if lab in selected_labels %}checked{% endif %}>
+          {{lab}}
+        </label>
+      {% endfor %}
+    </div>
+
+    <label>View</label>
+    <select name="view_mode">
+      <option value="all">train + test</option>
+      <option value="train">train only</option>
+      <option value="test">test only</option>
+    </select>
+  </div>
+
+  <!-- Right -->
+  <div class="panel">
+    <label>Method</label>
+    <select id="method" name="method" onchange="toggleParams()">
+      <option value="tsne">t-SNE</option>
+      <option value="umap">UMAP</option>
+    </select>
+
+    <div id="tsne">
+      <label>Perplexity</label><input name="perplexity" value="{{perplexity}}">
+      <label>LR</label><input name="learning_rate" value="{{learning_rate}}">
+      <label>EarlyEx</label><input name="early_exaggeration" value="{{early_exaggeration}}">
+      <label>Init</label>
+      <select name="init">
+        <option value="pca">pca</option>
+        <option value="random">random</option>
+      </select>
+      <label>Angle</label><input name="angle" value="{{angle}}">
+    </div>
+
+    <div id="umap">
+      <label>n_neighbors</label><input name="n_neighbors" value="{{n_neighbors}}">
+      <label>min_dist</label><input name="min_dist" value="{{min_dist}}">
+    </div>
+
+    <label>
+      <input type="checkbox" name="show_labels" {% if show_labels %}checked{% endif %}>
+      Show legend
+    </label>
+
+    <label>
+      <input type="checkbox" name="use_title" {% if use_title %}checked{% endif %}>
+      Title
+    </label>
+    <input name="title" value="{{title}}">
+
+    <button type="submit">Draw</button>
+  </div>
+</div>
+</form>
+
+{% if image_data %}
+<hr>
+<img src="data:image/png;base64,{{image_data}}">
+<br>
+<a download="{{png_filename}}" href="data:image/png;base64,{{image_data}}">Download PNG</a>
+
+{% if ari is not none %}
+<div class="metrics">
+  <b>ARI:</b> {{ "%.4f"|format(ari) }}　
+  <b>NMI:</b> {{ "%.4f"|format(nmi) }}
+</div>
+{% endif %}
+{% endif %}
+
+</body>
+</html>
