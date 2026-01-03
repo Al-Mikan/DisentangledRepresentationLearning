@@ -4,6 +4,17 @@
   <meta charset="utf-8">
   <title>Embedding Viewer</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+  <script>
+    function toggleParams() {
+      const method = document.querySelector('select[name="method"]').value;
+      document.getElementById("tsne-params").style.display =
+        (method === "tsne") ? "block" : "none";
+      document.getElementById("umap-params").style.display =
+        (method === "umap") ? "block" : "none";
+    }
+    window.onload = toggleParams;
+  </script>
 </head>
 
 <body>
@@ -66,7 +77,7 @@
     <input type="checkbox" name="train_labels" value="{{lab}}"
       {% if lab in selected_train_labels %}checked{% endif %}>
     {{lab}}
-  </label>
+  </label><br>
 {% endfor %}
 
 <h3>Test labels</h3>
@@ -75,7 +86,7 @@
     <input type="checkbox" name="test_labels" value="{{lab}}"
       {% if lab in selected_test_labels %}checked{% endif %}>
     {{lab}}
-  </label>
+  </label><br>
 {% endfor %}
 
 <hr>
@@ -89,22 +100,58 @@
 
 <label>View mode</label>
 <select name="view_mode">
-  <option value="all" {% if view_mode == "all" %}selected{% endif %}>
-    train + test
-  </option>
-  <option value="train" {% if view_mode == "train" %}selected{% endif %}>
-    train only
-  </option>
-  <option value="test" {% if view_mode == "test" %}selected{% endif %}>
-    test only
-  </option>
+  <option value="all" {% if view_mode == "all" %}selected{% endif %}>train + test</option>
+  <option value="train" {% if view_mode == "train" %}selected{% endif %}>train only</option>
+  <option value="test" {% if view_mode == "test" %}selected{% endif %}>test only</option>
 </select>
 
 <label>Method</label>
-<select name="method">
+<select name="method" onchange="toggleParams()">
   <option value="tsne" {% if method == "tsne" %}selected{% endif %}>t-SNE</option>
   <option value="umap" {% if method == "umap" %}selected{% endif %}>UMAP</option>
 </select>
+
+<hr>
+
+<!-- ============================= -->
+<!-- t-SNE params -->
+<!-- ============================= -->
+<div id="tsne-params">
+  <h4>t-SNE parameters</h4>
+
+  <label>Perplexity</label>
+  <input type="number" name="perplexity" value="{{ perplexity or 30 }}">
+
+  <label>Learning rate</label>
+  <input type="number" name="learning_rate" value="{{ learning_rate or 200 }}">
+
+  <label>Early exaggeration</label>
+  <input type="number" name="early_exaggeration" value="{{ early_exaggeration or 12 }}">
+
+  <label>Init</label>
+  <select name="init">
+    <option value="pca" {% if init == "pca" %}selected{% endif %}>pca</option>
+    <option value="random" {% if init == "random" %}selected{% endif %}>random</option>
+  </select>
+
+  <label>Angle</label>
+  <input type="number" step="0.05" name="angle" value="{{ angle or 0.5 }}">
+</div>
+
+<!-- ============================= -->
+<!-- UMAP params -->
+<!-- ============================= -->
+<div id="umap-params">
+  <h4>UMAP parameters</h4>
+
+  <label>n_neighbors</label>
+  <input type="number" name="n_neighbors" value="{{ n_neighbors or 15 }}">
+
+  <label>min_dist</label>
+  <input type="number" step="0.01" name="min_dist" value="{{ min_dist or 0.1 }}">
+</div>
+
+<hr>
 
 <label>
   <input type="checkbox" name="show_labels" {% if show_labels %}checked{% endif %}>

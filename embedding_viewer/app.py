@@ -232,8 +232,8 @@ def plot():
     selected_train = request.form.getlist("train_labels")
     selected_test = request.form.getlist("test_labels")
 
-    view_mode = request.form["view_mode"]
-    method = request.form["method"]
+    view_mode = request.form.get("view_mode", "all")
+    method = request.form.get("method", "tsne")
     show_labels = "show_labels" in request.form
     use_title = "use_title" in request.form
     title = request.form.get("title", "") if use_title else ""
@@ -265,18 +265,18 @@ def plot():
     if method == "tsne":
         reducer = TSNE(
             n_components=2,
-            perplexity=int(request.form["perplexity"]),
-            learning_rate=float(request.form["learning_rate"]),
-            early_exaggeration=float(request.form["early_exaggeration"]),
-            init=request.form["init"],
-            angle=float(request.form["angle"]),
+            perplexity=int(request.form.get("perplexity", 30)),
+            learning_rate=float(request.form.get("learning_rate", 200)),
+            early_exaggeration=float(request.form.get("early_exaggeration", 12)),
+            init=request.form.get("init", "pca"),
+            angle=float(request.form.get("angle", 0.5)),
         )
         X2d = reducer.fit_transform(X)
         summary = f"t-SNE (samples={len(X)})"
     else:
         reducer = umap.UMAP(
-            n_neighbors=int(request.form["n_neighbors"]),
-            min_dist=float(request.form["min_dist"]),
+            n_neighbors=int(request.form.get("n_neighbors", 15)),
+            min_dist=float(request.form.get("min_dist", 0.1)),
             metric="cosine",
         )
         X2d = reducer.fit_transform(X)
