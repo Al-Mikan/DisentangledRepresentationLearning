@@ -22,7 +22,7 @@ TRAIN_RESULT_ROOT = Path(
 )
 
 # ======================================================
-# JSONL Loader
+# Loader
 # ======================================================
 def load_embeddings(path: Path):
     vecs, labels, sources = [], [], []
@@ -39,7 +39,7 @@ def load_embeddings(path: Path):
     )
 
 # ======================================================
-# ARI / NMI
+# Metrics
 # ======================================================
 def compute_ari_nmi(X, labels):
     n_clusters = len(np.unique(labels))
@@ -57,11 +57,10 @@ def compute_ari_nmi(X, labels):
     return ari, nmi
 
 # ======================================================
-# Plot（同一ラベルは同色、train/test は marker）
+# Plot
 # ======================================================
 def plot_embedding(X2d, labels, sources, title, show_labels):
     plt.figure(figsize=(8, 8))
-
     if title:
         plt.title(title, fontsize=16)
 
@@ -78,15 +77,13 @@ def plot_embedding(X2d, labels, sources, title, show_labels):
         if np.any(m_train):
             plt.scatter(
                 X2d[m_train, 0], X2d[m_train, 1],
-                color=color, marker="o",
-                s=20, alpha=0.8,
+                color=color, marker="o", s=20, alpha=0.8,
                 label=(f"{lab} (train)" if show_labels else None),
             )
         if np.any(m_test):
             plt.scatter(
                 X2d[m_test, 0], X2d[m_test, 1],
-                color=color, marker="^",
-                s=35, alpha=0.9,
+                color=color, marker="^", s=35, alpha=0.9,
                 label=(f"{lab} (test)" if show_labels else None),
             )
 
@@ -106,7 +103,7 @@ def plot_embedding(X2d, labels, sources, title, show_labels):
     return base64.b64encode(buf.getvalue()).decode()
 
 # ======================================================
-# Index
+# Index（GET）
 # ======================================================
 @app.route("/", methods=["GET"])
 def index():
@@ -142,6 +139,8 @@ def index():
         selected_date=selected_date,
         selected_run=selected_run,
         selected_model=None,
+
+        # 描画関連の初期値
         view_mode="all",
         method="tsne",
         perplexity=30,
@@ -151,10 +150,14 @@ def index():
         angle=0.5,
         n_neighbors=15,
         min_dist=0.1,
+
         use_title=False,
         title="",
         show_labels=True,
+
+        # 結果
         image_data=None,
+        summary=None,
         all_labels=[],
         selected_labels=[],
         ari=None,
@@ -163,10 +166,11 @@ def index():
     )
 
 # ======================================================
-# Plot
+# Plot（POST）
 # ======================================================
 @app.route("/plot", methods=["POST"])
 def plot():
+    # -------- state --------
     date = request.form["date"]
     run = request.form["run"]
     model = request.form["model"]
@@ -177,8 +181,8 @@ def plot():
     use_title = "use_title" in request.form
     title = request.form.get("title", "") if use_title else ""
 
+    # -------- load --------
     eval_dir = TRAIN_RESULT_ROOT / date / run / "eval"
-
     paths = []
     if view_mode in ("all", "train"):
         paths.append(eval_dir / f"{model}_train.jsonl")
@@ -196,13 +200,13 @@ def plot():
     labels = np.concatenate(labels)
     sources = np.concatenate(sources)
 
+    # -------- label filter --------
     all_labels = sorted(np.unique(labels).tolist())
     selected_labels = request.form.getlist("selected_labels") or all_labels
-
     mask = np.isin(labels, selected_labels)
     X, labels, sources = X[mask], labels[mask], sources[mask]
 
-    # Dim reduction
+    # -------- dim reduction --------
     if method == "tsne":
         reducer = TSNE(
             n_components=2,
@@ -213,6 +217,7 @@ def plot():
             angle=float(request.form["angle"]),
         )
         X2d = reducer.fit_transform(X)
+        summary = f"t-SNE (samples={len(X)})"
     else:
         reducer = umap.UMAP(
             n_neighbors=int(request.form["n_neighbors"]),
@@ -220,11 +225,15 @@ def plot():
             metric="cosine",
         )
         X2d = reducer.fit_transform(X)
+        summary = f"UMAP (samples={len(X)})"
 
+    # -------- metrics --------
     ari, nmi = compute_ari_nmi(X, labels)
+
     image_data = plot_embedding(X2d, labels, sources, title, show_labels)
     png_filename = f"{title}.png" if title else "embedding.png"
 
+    # -------- UI state restore --------
     dates = sorted([p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir()])
     runs = sorted(
         [p.name for p in (TRAIN_RESULT_ROOT / date).iterdir()
@@ -235,10 +244,11 @@ def plot():
         "index.html",
         dates=dates,
         runs=runs,
-        model_names=[model],
+        model_names = sorted({model}),
         selected_date=date,
         selected_run=run,
         selected_model=model,
+
         view_mode=view_mode,
         method=method,
         perplexity=request.form.get("perplexity"),
@@ -248,10 +258,13 @@ def plot():
         angle=request.form.get("angle"),
         n_neighbors=request.form.get("n_neighbors"),
         min_dist=request.form.get("min_dist"),
+
         use_title=use_title,
         title=title,
         show_labels=show_labels,
+
         image_data=image_data,
+        summary=summary,
         all_labels=all_labels,
         selected_labels=selected_labels,
         ari=ari,

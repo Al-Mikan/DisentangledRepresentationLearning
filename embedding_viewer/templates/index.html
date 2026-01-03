@@ -10,21 +10,57 @@
       document.getElementById("tsne").style.display = (m === "tsne") ? "block" : "none";
       document.getElementById("umap").style.display = (m === "umap") ? "block" : "none";
     }
+    function toggleTitle() {
+      document.getElementById("title_box").style.display =
+        document.getElementById("use_title").checked ? "block" : "none";
+    }
     function selectAll(flag) {
       document.querySelectorAll("input[name='selected_labels']")
         .forEach(cb => cb.checked = flag);
     }
-    window.onload = toggleParams;
+    window.onload = function() {
+      toggleParams();
+      toggleTitle();
+    };
   </script>
 </head>
 
 <body>
 <h1>Embedding Viewer</h1>
 
+<!-- Date -->
+<form method="get">
+  <label>Date</label>
+  <select name="date" onchange="this.form.submit()">
+    {% for d in dates %}
+      <option value="{{d}}" {% if d==selected_date %}selected{% endif %}>{{d}}</option>
+    {% endfor %}
+  </select>
+</form>
+
+<!-- Run -->
+{% if runs %}
+<form method="get">
+  <input type="hidden" name="date" value="{{selected_date}}">
+  <label>Run</label>
+  <select name="run" onchange="this.form.submit()">
+    {% for r in runs %}
+      <option value="{{r}}" {% if r==selected_run %}selected{% endif %}>{{r}}</option>
+    {% endfor %}
+  </select>
+</form>
+{% endif %}
+
+{% if model_names %}
+<hr>
+
 <form method="post" action="/plot">
+<input type="hidden" name="date" value="{{selected_date}}">
+<input type="hidden" name="run" value="{{selected_run}}">
+
 <div class="container">
 
-  <!-- Left -->
+  <!-- LEFT -->
   <div class="panel">
     <label>Model</label>
     <select name="model">
@@ -49,18 +85,18 @@
 
     <label>View</label>
     <select name="view_mode">
-      <option value="all">train + test</option>
-      <option value="train">train only</option>
-      <option value="test">test only</option>
+      <option value="all" {% if view_mode=='all' %}selected{% endif %}>train + test</option>
+      <option value="train" {% if view_mode=='train' %}selected{% endif %}>train only</option>
+      <option value="test" {% if view_mode=='test' %}selected{% endif %}>test only</option>
     </select>
   </div>
 
-  <!-- Right -->
+  <!-- RIGHT -->
   <div class="panel">
     <label>Method</label>
     <select id="method" name="method" onchange="toggleParams()">
-      <option value="tsne">t-SNE</option>
-      <option value="umap">UMAP</option>
+      <option value="tsne" {% if method=='tsne' %}selected{% endif %}>t-SNE</option>
+      <option value="umap" {% if method=='umap' %}selected{% endif %}>UMAP</option>
     </select>
 
     <div id="tsne">
@@ -69,8 +105,8 @@
       <label>EarlyEx</label><input name="early_exaggeration" value="{{early_exaggeration}}">
       <label>Init</label>
       <select name="init">
-        <option value="pca">pca</option>
-        <option value="random">random</option>
+        <option value="pca" {% if init=='pca' %}selected{% endif %}>pca</option>
+        <option value="random" {% if init=='random' %}selected{% endif %}>random</option>
       </select>
       <label>Angle</label><input name="angle" value="{{angle}}">
     </div>
@@ -86,15 +122,22 @@
     </label>
 
     <label>
-      <input type="checkbox" name="use_title" {% if use_title %}checked{% endif %}>
+      <input type="checkbox" id="use_title" name="use_title"
+        {% if use_title %}checked{% endif %}
+        onclick="toggleTitle()">
       Title
     </label>
-    <input name="title" value="{{title}}">
+
+    <div id="title_box" style="display:none;">
+      <input name="title" value="{{title}}">
+    </div>
 
     <button type="submit">Draw</button>
   </div>
+
 </div>
 </form>
+{% endif %}
 
 {% if image_data %}
 <hr>
@@ -102,9 +145,11 @@
 <br>
 <a download="{{png_filename}}" href="data:image/png;base64,{{image_data}}">Download PNG</a>
 
+<pre>{{ summary }}</pre>
+
 {% if ari is not none %}
 <div class="metrics">
-  <b>ARI:</b> {{ "%.4f"|format(ari) }}　
+  <b>ARI:</b> {{ "%.4f"|format(ari) }}
   <b>NMI:</b> {{ "%.4f"|format(nmi) }}
 </div>
 {% endif %}
