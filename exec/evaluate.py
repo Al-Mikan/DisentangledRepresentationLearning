@@ -474,7 +474,7 @@ def main(run_dir: Path):
 
     # train_label_paths / test_label_path を config から取得（必須扱い）
     train_label_paths = params.get("train_label_paths", None)
-    test_label_path = params.get("test_label_path", None)
+    test_label_path = params.get("test_label_paths", None)
 
     # ---- run_note.txt から上書き（あれば）----
     note_path = run_dir / "run_note.txt"
