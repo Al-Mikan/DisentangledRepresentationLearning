@@ -459,12 +459,12 @@ def main(run_dir: Path):
         with open(baseline_path, "r", encoding="utf-8") as f:
             base_cfg = json.load(f)
         params = {}
-        params.update(base_cfg.get("params", {}))
-        params.update(base_cfg.get("user_attrs", {}))
-
         if "config_used" in base_cfg and isinstance(base_cfg["config_used"], dict):
             params.update(base_cfg["config_used"])
             print("📘 Expanded config_used into params")
+        params.update(base_cfg.get("params", {}))
+        params.update(base_cfg.get("user_attrs", {}))
+
     else:
         params = {}
 
