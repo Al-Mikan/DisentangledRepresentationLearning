@@ -461,6 +461,10 @@ def main(run_dir: Path):
         params = {}
         params.update(base_cfg.get("params", {}))
         params.update(base_cfg.get("user_attrs", {}))
+
+        if "config_used" in base_cfg and isinstance(base_cfg["config_used"], dict):
+            params.update(base_cfg["config_used"])
+            print("📘 Expanded config_used into params")
     else:
         params = {}
 
