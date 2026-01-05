@@ -509,16 +509,19 @@ def main(run_dir: Path):
     model_paths = list(ablation_root.glob("**/*.pth"))
 
     for mp in tqdm(model_paths, desc="Evaluating"):
-        rel = mp.relative_to(ablation_root).parts
-        key = rel[0] if len(rel) > 0 else "unknown"
-        val = rel[1] if len(rel) > 1 else "unknown"
-
         p = params.copy()
         p["model_path"] = mp
-        if key == "train_mode":
-            p["train_mode"] = val
-        if key == "flow_preprocessing":
-            p["flow_preprocessing"] = val
+
+        rel = mp.relative_to(ablation_root).parts
+        key = rel[0]          # train_mode / adversarial / flow_preprocessing
+        val = rel[1]          # gated / on / centered ...
+
+        if key in {"train_mode", "adversarial", "flow_preprocessing"}:
+            p[key] = val
+
+        if p.get("train_mode") is None:
+            print(f"⚠️ Skip (train_mode missing): {mp}")
+            continue
 
         model = build_and_load_model(p)
         if model is None:
