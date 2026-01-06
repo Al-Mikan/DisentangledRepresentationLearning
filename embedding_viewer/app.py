@@ -95,12 +95,12 @@ def plot_embedding(X2d, labels, sources, title, show_labels):
         if np.any(m_test):
             plt.scatter(
                 X2d[m_test, 0], X2d[m_test, 1],
-                facecolors="none",          # 塗りつぶさない
-                edgecolors="lightgray",     # 枠線を薄いグレーに
+                c=[color],                 # 塗りつぶしはラベル色
                 marker="^",
-                s=40,
-                linewidths=1.2,
+                s=35,
                 alpha=0.9,
+                edgecolors="lightgray",    # 枠線を薄いグレーに
+                linewidths=1.2,            # 枠線の太さ
                 label=(f"{lab} (test)" if show_labels else None),
             )
 
