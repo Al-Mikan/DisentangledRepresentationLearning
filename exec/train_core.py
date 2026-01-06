@@ -61,8 +61,8 @@ def get_loss_fn_and_miner(
         loss_fn = MultiSimilarityLoss(
                     alpha=2.0, 
                     beta=50.0, 
-                    base=triplet_margin, # 引数のmarginをbaseとして利用
-                    epsilon=0.1          # さきほど追加したマージン
+                    base=triplet_margin,
+                    epsilon=0.2          
                 )
 
     return loss_fn, miner
@@ -233,6 +233,7 @@ def _encode_batch(models: nn.ModuleDict, batch, config: Dict[str, Any]):
         alpha = None
     encoder = models["action_encoder"] if "action_encoder" in models else models["net"]
     a_vec = encoder(x)
+    a_vec = torch.nn.functional.normalize(a_vec, p=2, dim=1)
     return a_vec, a, s, alpha
 
 
@@ -496,7 +497,7 @@ def train_model(
     # -------------------------------
     loss_fn, miner = get_loss_fn_and_miner(
         str(config["loss_type"]),
-        triplet_margin=float(config.get("triplet_margin", 0.1)),
+        triplet_margin=float(config.get("triplet_margin")),
     )
 
     # -------------------------------
@@ -729,25 +730,25 @@ def _compute_clustering_metrics(
     results["agg_ari"] = float(adjusted_rand_score(y, pred_agg))
     results["agg_nmi"] = float(normalized_mutual_info_score(y, pred_agg))
 
-    # =========================
-    # KMeans (reference)
-    # =========================
-    km = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-    pred_km = km.fit_predict(X)
-    results["km_ari"] = float(adjusted_rand_score(y, pred_km))
-    results["km_nmi"] = float(normalized_mutual_info_score(y, pred_km))
+    # # =========================
+    # # KMeans (reference)
+    # # =========================
+    # km = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    # pred_km = km.fit_predict(X)
+    # results["km_ari"] = float(adjusted_rand_score(y, pred_km))
+    # results["km_nmi"] = float(normalized_mutual_info_score(y, pred_km))
 
-    # =========================
-    # GMM (reference)
-    # =========================
-    gmm = GaussianMixture(
-        n_components=n_clusters,
-        covariance_type="full",
-        random_state=42,
-    )
-    pred_gmm = gmm.fit_predict(X)
-    results["gmm_ari"] = float(adjusted_rand_score(y, pred_gmm))
-    results["gmm_nmi"] = float(normalized_mutual_info_score(y, pred_gmm))
+    # # =========================
+    # # GMM (reference)
+    # # =========================
+    # gmm = GaussianMixture(
+    #     n_components=n_clusters,
+    #     covariance_type="full",
+    #     random_state=42,
+    # )
+    # pred_gmm = gmm.fit_predict(X)
+    # results["gmm_ari"] = float(adjusted_rand_score(y, pred_gmm))
+    # results["gmm_nmi"] = float(normalized_mutual_info_score(y, pred_gmm))
 
     return results
 

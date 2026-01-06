@@ -317,18 +317,6 @@ def _run_one_fold(
                     "agg_nmi_train": metrics_tr["agg_nmi"],
                     "agg_ari_val":   metrics_val["agg_ari"],
                     "agg_nmi_val":   metrics_val["agg_nmi"],
-
-                    # --- KMeans (ref) ---
-                    "km_ari_train": metrics_tr["km_ari"],
-                    "km_nmi_train": metrics_tr["km_nmi"],
-                    "km_ari_val":   metrics_val["km_ari"],
-                    "km_nmi_val":   metrics_val["km_nmi"],
-
-                    # --- GMM (ref) ---
-                    "gmm_ari_train": metrics_tr["gmm_ari"],
-                    "gmm_nmi_train": metrics_tr["gmm_nmi"],
-                    "gmm_ari_val":   metrics_val["gmm_ari"],
-                    "gmm_nmi_val":   metrics_val["gmm_nmi"],
                 }
             )
 
