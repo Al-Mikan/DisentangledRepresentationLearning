@@ -133,18 +133,12 @@ def compute_species_prior(df, le_sp, device):
     """
     train_df に基づく species prior を作る
     - le_sp.classes_ の順序・次元に必ず一致
-    - train_df に存在しない種は確率 0
+    - train_df に存在しない種は確率 
     - KL(q || p) 用に安全
     """
-    num_species = len(le_sp.classes_)
-
-    counts = df["species"].value_counts()
-
-    prior = torch.zeros(num_species, dtype=torch.float32, device=device)
-    for i in range(num_species):
-        prior[i] = counts.get(i, 0)
-
-    prior = prior / prior.sum()
+    sp_ids = torch.tensor(le_sp.transform(df["species"]), device=device)
+    counts = torch.bincount(sp_ids, minlength=len(le_sp.classes_)).float()
+    prior = counts / counts.sum().clamp_min(1.0)
 
     return prior
 
@@ -384,13 +378,11 @@ def evaluate_model(
         for batch in loader:
             a_vec, a, _s, _alpha = _encode_batch(models, batch, config)
 
-            # metric loss
-            if miner is not None:
-                hard = miner(a_vec, a)
-                loss = loss_fn(a_vec, a, hard)
+
+            if isinstance(loss_fn, MultiSimilarityLoss):
+                 loss = loss_fn(a_vec, a)
             else:
                 loss = loss_fn(a_vec, a)
-
             # 行動 CE も加える（lambda_cls = 0 の時は実質無効）
             if lambda_cls > 0:
                 logits_act = models["action_classifier"](a_vec)* 10.0
