@@ -95,9 +95,15 @@ def plot_embedding(X2d, labels, sources, title, show_labels):
         if np.any(m_test):
             plt.scatter(
                 X2d[m_test, 0], X2d[m_test, 1],
-                color=color, marker="^", s=35, alpha=0.9,
+                facecolors="none",          # 塗りつぶさない
+                edgecolors="lightgray",     # 枠線を薄いグレーに
+                marker="^",
+                s=40,
+                linewidths=1.2,
+                alpha=0.9,
                 label=(f"{lab} (test)" if show_labels else None),
             )
+
 
     if show_labels:
         plt.legend(fontsize=8, bbox_to_anchor=(1.02, 0.5), loc="center left")
