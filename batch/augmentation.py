@@ -26,12 +26,10 @@ transform = A.Compose([
 
     # ズームイン + ランダム位置 crop
     A.RandomResizedCrop(
-        height=224,
-        width=224,
-        scale=(0.75, 1.0),   # ズームインのみ
-        ratio=(0.9, 1.1),
-        p=1.0
-    ),
+    size=(224, 224),          
+    scale=(0.75, 1.0),
+    ratio=(1.0, 1.0),
+)
 ])
 
 # =========================
