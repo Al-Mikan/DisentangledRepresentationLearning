@@ -136,7 +136,7 @@ def compute_species_prior(df, le_sp, device):
     - train_df に存在しない種は確率 
     - KL(q || p) 用に安全
     """
-    sp_ids = torch.tensor(le_sp.transform(df["species"]), device=device)
+    sp_ids = torch.tensor(df["species"].values, device=device, dtype=torch.long)
     counts = torch.bincount(sp_ids, minlength=len(le_sp.classes_)).float()
     prior = counts / counts.sum().clamp_min(1.0)
 
