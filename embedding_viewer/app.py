@@ -99,7 +99,7 @@ def plot_embedding(X2d, labels, sources, title, show_labels):
                 marker="^",
                 s=35,
                 alpha=0.9,
-                edgecolors="lightgray",    # 枠線を薄いグレーに
+                edgecolors="black",    # 枠線を薄いグレーに
                 linewidths=1.2,            # 枠線の太さ
                 label=(f"{lab} (test)" if show_labels else None),
             )
