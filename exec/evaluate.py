@@ -88,6 +88,7 @@ def load_data_for_eval(train_label_paths, test_label_path: str, pooling: bool, d
     def detect_vector_root(path_str: str) -> str:
         low = path_str.lower()
         if "polar" in low: return "polar"
+        if "elephant" in low: return "elephant"
         if "animalkingdom" in low: return "animalkingdom"
         return default_datatype
 

@@ -3,7 +3,7 @@ import sys
 import subprocess
 import pandas as pd
 
-CSV_PATH = os.path.abspath("./label/animalkingdom/test/labels_test.csv")
+CSV_PATH = os.path.abspath("./label/test/elephant.csv")
 VIDEO_ROOT = os.path.abspath("./")
 VECTOR_ROOT = os.path.abspath("./vector")
 STRIDE = "1"
@@ -34,7 +34,7 @@ def main():
         video_path = os.path.abspath(os.path.join(VIDEO_ROOT, video_rel))
 
         video_name = os.path.splitext(os.path.basename(video_path))[0]
-        out_base = os.path.abspath(os.path.join(VECTOR_ROOT, "polar", video_name))
+        out_base = os.path.abspath(os.path.join(VECTOR_ROOT, "elephant", video_name))
 
         os.makedirs(out_base, exist_ok=True)
 

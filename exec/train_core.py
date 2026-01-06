@@ -59,9 +59,9 @@ def get_loss_fn_and_miner(
         dist = distances.LpDistance(p=2)
         loss_fn = ImprovedTripletLoss(
             tau1=triplet_margin, 
-            tau2=0.7, 
+            tau2=0.3, 
             beta=0.5, 
-            lambda_norm=0.1
+            lambda_norm=0.01
         )
         miner = miners.TripletMarginMiner(
             margin=triplet_margin, 

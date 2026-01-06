@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import time
 import numpy as np
 import torch
@@ -10,6 +11,9 @@ from tqdm import tqdm
 from decord import VideoReader
 from torchvision import transforms
 from torchvision.transforms.functional import normalize
+
+THIS_DIR = Path(__file__).parent.resolve()
+os.sys.path.insert(0, str(THIS_DIR))
 
 from RAFT.core.utils.utils import InputPadder
 from RAFT.core.raft import RAFT
@@ -25,7 +29,7 @@ from typing import List
 args = SimpleNamespace(small=False, mixed_precision=True, dropout=0.0, alternate_corr=False)
 raft_model = RAFT(args)
 
-state_dict = torch.load("./exec/RAFT/models/raft-sintel.pth")
+state_dict = torch.load("./exec/make_vector/RAFT/models/raft-sintel.pth")
 new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
 raft_model.load_state_dict(new_state_dict)
 
@@ -188,7 +192,7 @@ def extract_flow_to_x3d(
 if __name__ == "__main__":
 
     csv_files = [
-        "./label/animalkingdom/test/labels_test.csv",
+        "./label/test/elephant.csv",
     ]
 
     for csv in csv_files:
@@ -196,7 +200,7 @@ if __name__ == "__main__":
         df["video_path"] = df["video_path"].str.replace("\\", "/").str.strip()
 
         parts = os.path.normpath(csv).split(os.sep)
-        datatype = "polar"
+        datatype = "elephant"
 
         out_normal = f"./x3d_vector/{datatype}"
         out_centered = f"./x3d_vector_centered/{datatype}"

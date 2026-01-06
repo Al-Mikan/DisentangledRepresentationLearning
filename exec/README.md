@@ -84,3 +84,6 @@ train.py には、Discord Webhook 経由で進捗を通知する軽量機能を�
 
 - 停止方法
   - `DISCORD_WEBHOOK_URL` を未設定にする（通知は送られません）。
+
+
+source ~/venvs/lab/bin/activate
