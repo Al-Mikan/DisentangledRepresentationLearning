@@ -14,6 +14,8 @@ def detect_vec_root(video_path: str) -> str:
     p = video_path.lower()
     if "polar" in p:
         return "polar"
+    if "elephant" in p:
+        return "elephant"
     if "animalkingdom" in p:
         return "animalkingdom"
     return "animalkingdom"

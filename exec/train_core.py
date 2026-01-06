@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import gc
-from triplet_losses import ImprovedTripletLoss, grl
+from triplet_losses import ImprovedTripletLoss, grl, MultiSimilarityLoss
 import numpy as np
 import torch
 from torch import nn
@@ -56,18 +56,15 @@ def get_loss_fn_and_miner(
             margin=triplet_margin, distance=dist, type_of_triplets="semihard"
         )
     else:
-        dist = distances.LpDistance(p=2)
-        loss_fn = ImprovedTripletLoss(
-            tau1=triplet_margin, 
-            tau2=0.3, 
-            beta=0.5, 
-            lambda_norm=0.01
-        )
-        miner = miners.TripletMarginMiner(
-            margin=triplet_margin, 
-            distance=dist, 
-            type_of_triplets="hard"
-        )
+        miner = None 
+                
+        loss_fn = MultiSimilarityLoss(
+                    alpha=2.0, 
+                    beta=50.0, 
+                    base=triplet_margin, # 引数のmarginをbaseとして利用
+                    epsilon=0.1          # さきほど追加したマージン
+                )
+
     return loss_fn, miner
 
 
@@ -81,6 +78,7 @@ def compute_distance_stats_epoch(
     intra / inter 距離の mean / var を計算
     """
     embeddings = embeddings.detach().cpu()
+    embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
     labels = labels.detach().cpu()
 
     intra_dists = []
@@ -291,10 +289,13 @@ def train_step(
 
     # 1. Triplet Loss 
     if miner is not None:
+        # Triplet Loss系: マイナーが作ったペア(hard)を渡す
         hard = miner(a_vec, a)
         total_loss = loss_fn(a_vec, a, hard)
     else:
-        total_loss = loss_fn(a_vec, a, None)
+        # Multi Similarity Loss系: 
+        # Loss関数内部で全ペアを計算するため、第3引数(None)は不要です
+        total_loss = loss_fn(a_vec, a)
     
     metrics["triplet/loss"] = total_loss.item()
 

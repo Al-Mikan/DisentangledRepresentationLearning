@@ -241,7 +241,7 @@ def _run_one_fold(
     results_root,
     fold,
 ):
-    LOG_FOLD = 1
+    LOG_FOLD = 0
 
     try:
         train_loader, val_loader, fusion_model = build_datasets_and_loaders(
@@ -285,7 +285,7 @@ def _run_one_fold(
             model_path,
             map_location="cuda" if torch.cuda.is_available() else "cpu"
         )
-        inf_models.load_state_dict(state, strict=False)
+        inf_models.load_state_dict(state, strict=True)
 
         # =========================
         # clustering evaluation

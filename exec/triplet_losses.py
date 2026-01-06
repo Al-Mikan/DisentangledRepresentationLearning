@@ -34,7 +34,60 @@ class ImprovedTripletLoss(nn.Module):
             + self.lambda_norm * norm_loss
         )
 
+class MultiSimilarityLoss(nn.Module):
+    def __init__(self, alpha=2.0, beta=50.0, base=0.5, epsilon=0.1):
+        super().__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.base = base
+        self.epsilon = epsilon # マイニング用のマージン
 
+    def forward(self, embeddings, labels):
+        # L2正規化（これは必須！OKです）
+        embeddings = F.normalize(embeddings, dim=1)
+        sim_mat = embeddings @ embeddings.t()
+
+        labels = labels.view(-1, 1)
+        eye = torch.eye(len(labels), device=labels.device).bool()
+
+        # マスク作成（ここも完璧です）
+        is_pos = (labels == labels.t()) & ~eye
+        is_neg = (labels != labels.t()) & ~eye
+
+        loss = []
+
+        for i in range(len(labels)):
+            pos_sim = sim_mat[i][is_pos[i]]
+            neg_sim = sim_mat[i][is_neg[i]]
+
+            if len(pos_sim) == 0 or len(neg_sim) == 0:
+                continue
+
+            # ---- hard mining ----
+            neg_max = neg_sim.max()
+            pos_min = pos_sim.min()
+
+            hard_pos_sim = pos_sim[pos_sim < neg_max + self.epsilon]
+            
+            hard_neg_sim = neg_sim[neg_sim > pos_min - self.epsilon]
+
+            if len(hard_pos_sim) == 0 or len(hard_neg_sim) == 0:
+                continue
+
+            pos_loss = torch.log(
+                1 + torch.sum(torch.exp(-self.alpha * (hard_pos_sim - self.base)))
+            ) / self.alpha
+
+            neg_loss = torch.log(
+                1 + torch.sum(torch.exp(self.beta * (hard_neg_sim - self.base)))
+            ) / self.beta
+
+            loss.append(pos_loss + neg_loss)
+
+        if len(loss) == 0:
+            return torch.zeros([], device=embeddings.device, requires_grad=True)
+
+        return torch.mean(torch.stack(loss))
 
 class CosineTripletLoss(torch.nn.Module):
     def __init__(self, margin=0.1):

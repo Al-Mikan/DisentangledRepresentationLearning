@@ -4,10 +4,8 @@ import json
 import numpy as np
 import torch
 import decord
-import torch.nn.functional as F
 from transformers import VideoMAEImageProcessor, VideoMAEModel
 import gc
-
 
 # ========= 受け取る引数 =========
 video_path = os.path.abspath(sys.argv[1])
@@ -19,9 +17,9 @@ print(f"\n🎞 Worker processing {os.path.basename(video_path)}\n")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 decord.bridge.set_bridge("torch")
 
+# モデル読み込み
 processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base")
 model = VideoMAEModel.from_pretrained("MCG-NJU/videomae-base").to(device).eval()
-
 
 # ========= Utility =========
 def load_progress(path):
@@ -30,24 +28,32 @@ def load_progress(path):
             return json.load(f)
     return {}
 
-
 def save_progress(path, data):
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
 
-
 # ========================================
-# sliding_list（最も安全な Windows 用）
+# 統合処理関数 (Sliding Save + Pooling)
 # ========================================
-def process_sliding_list(video_path, out_dir, n_frames=16, stride=1):
-    os.makedirs(out_dir, exist_ok=True)
-
-    progress_path = os.path.join(out_dir, "progress.json")
+def process_video_features(video_path, out_base, n_frames=16, stride=1):
+    # 出力先設定
+    sliding_dir = os.path.join(out_base, "sliding_list")
+    os.makedirs(sliding_dir, exist_ok=True)
+    
+    pool_path = os.path.join(out_base, "avg_pooling.npy")
+    progress_path = os.path.join(sliding_dir, "progress.json")
+    
     progress = load_progress(progress_path)
 
     try:
         vr = decord.VideoReader(video_path)
         total_frames = len(vr)
+        
+        # ウィンドウ数の計算
+        if total_frames < n_frames:
+            print(f"⚠ Video too short ({total_frames} frames). Skipping.")
+            return
+
         total_windows = (total_frames - n_frames) // stride + 1
 
         progress.setdefault("windows_total", total_windows)
@@ -57,114 +63,92 @@ def process_sliding_list(video_path, out_dir, n_frames=16, stride=1):
         last_success = progress.get("last_success", -1)
         start_window = last_success + 1
 
-        # 🔥前回途中で壊れてる可能性のある npy を削除
-        broken_file = os.path.join(out_dir, f"{start_window:03d}.npy")
-        if os.path.exists(broken_file):
-            print(f"⚠ Delete broken file: {broken_file}")
-            os.remove(broken_file)
-
-        # ========= メインループ =========
+        # Pooling用の累積変数 (途中再開の場合は考慮が必要だが、今回は簡易的に)
+        # ※ 厳密に途中再開でPoolingを計算するには、既存のnpyを読み込む必要がありますが
+        #    ここでは「Sliding保存」を優先し、Poolingは最後に全npyから計算する方式にします。
+        
+        # ========= 1. Sliding Loop (個別保存) =========
         for win in range(start_window, total_windows):
-            save_path = os.path.join(out_dir, f"{win:03d}.npy")
+            save_path = os.path.join(sliding_dir, f"{win:03d}.npy")
+            
+            # 既にファイルがあるならスキップ（念のため）
+            if os.path.exists(save_path):
+                continue
 
-            # Frame Load
             try:
+                # Frame Load
                 idx = list(range(win * stride, win * stride + n_frames))
-                frames = vr.get_batch(idx).permute(0,3,1,2).float() / 255.0
-            except Exception as e:
-                print(f"⚠ Frame read error at window {win}: {e}")
-                continue
-
-            # (T, C, H, W) → (T, H, W, C)
-            frames_np = frames.permute(0,2,3,1).cpu().numpy()
-            frames_list = [frames_np[i] for i in range(frames_np.shape[0])]
-
-            try:
-                inputs = processor(frames_list, return_tensors="pt", do_rescale=False).to(device)
-                with torch.no_grad():
-                    out = model(**inputs)
-                    cls = out.last_hidden_state[:,0].cpu().numpy().squeeze()
-            except Exception as e:
-                print(f"⚠ VideoMAE forward failed at window {win}: {e}")
-                continue
-
-            # Save atomic
-            try:
-                np.save(save_path, cls)
-            except Exception as e:
-                print(f"⚠ Save error at window {win}: {e}")
-                continue
-
-            # Update progress
-            progress["last_success"] = win
-            save_progress(progress_path, progress)
-
-            del frames, out, inputs, cls
-            gc.collect()
-            torch.cuda.empty_cache()
-
-    except Exception as e:
-        print(f"❌ Error sliding_list: {e}")
-
-
-# ========================================
-# pooling（壊れやすいので毎回作り直し）
-# ========================================
-def process_pooling(video_path, save_path, n_frames=16, stride=1):
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-    if os.path.exists(save_path):
-        print(f"⚠ Delete previous pooling file: {save_path}")
-        os.remove(save_path)
-
-    try:
-        vr = decord.VideoReader(video_path)
-        total_frames = len(vr)
-        total_windows = (total_frames - n_frames) // stride + 1
-
-        cls_vectors = []
-
-        for win in range(total_windows):
-            try:
-                idx = list(range(win * stride, win * stride + n_frames))
-                frames = vr.get_batch(idx).permute(0,3,1,2).float() / 255.0
-            except:
-                print(f"⚠ Frame read error at window {win}")
-                continue
-
-            try:
+                frames = vr.get_batch(idx).permute(0,3,1,2).float() / 255.0 # [T, C, H, W]
+                
+                # Processor expects list of numpy [H, W, C]
                 frames_np = frames.permute(0,2,3,1).cpu().numpy()
                 frames_list = [frames_np[i] for i in range(frames_np.shape[0])]
+
+                # Preprocess
                 inputs = processor(frames_list, return_tensors="pt", do_rescale=False).to(device)
+                
+                # Inference
                 with torch.no_grad():
                     out = model(**inputs)
-                    cls_vectors.append(out.last_hidden_state[:,0].cpu())
-            except:
-                print(f"⚠ VideoMAE forward error at window {win}")
+                    # [Batch, Hidden] -> [Hidden]
+                    cls_vector = out.last_hidden_state[:, 0].cpu().numpy().squeeze()
+
+                # Save
+                np.save(save_path, cls_vector)
+                
+                # Progress Update
+                progress["last_success"] = win
+                if win % 10 == 0: # 毎回保存すると遅いので間引く
+                    save_progress(progress_path, progress)
+
+            except Exception as e:
+                print(f"⚠ Error at window {win}: {e}")
                 continue
+            
+            # Memory Cleanup
+            del frames, inputs, out, cls_vector
+            # gc.collect() # 毎回呼ぶと遅いので、VRAMがカツカツでなければ外すか頻度を下げる
 
-            del frames, out, inputs
-            gc.collect()
-            torch.cuda.empty_cache()
+        # 最後の進捗保存
+        save_progress(progress_path, progress)
 
-        if not cls_vectors:
-            print("⚠ No vectors collected for pooling")
+        # ========= 2. Pooling Calculation (保存済みファイルから計算) =========
+        # メモリに全ベクトルを持たずに計算します（省メモリ）
+        
+        if os.path.exists(pool_path):
+            print("ℹ️ Pooling file already exists. Skipping.")
             return
 
-        all_vecs = torch.cat(cls_vectors, dim=0).unsqueeze(0).permute(0,2,1)
-        pooled = F.adaptive_avg_pool1d(all_vecs, 1).squeeze().numpy()
-
-        np.save(save_path, pooled)
+        print("🔄 Calculating pooling from saved files...")
+        sum_vec = None
+        count = 0
+        
+        # 保存された全npyファイルを走査
+        npy_files = sorted([f for f in os.listdir(sliding_dir) if f.endswith(".npy")])
+        
+        for f in npy_files:
+            try:
+                vec = np.load(os.path.join(sliding_dir, f)) # [768]
+                if sum_vec is None:
+                    sum_vec = vec.astype(np.float64) # 精度維持のためfloat64
+                else:
+                    sum_vec += vec
+                count += 1
+            except:
+                pass
+        
+        if count > 0 and sum_vec is not None:
+            avg_vec = (sum_vec / count).astype(np.float32)
+            np.save(pool_path, avg_vec)
+            print(f"✅ Pooling saved (averaged {count} vectors)")
+        else:
+            print("⚠ No vectors found for pooling.")
 
     except Exception as e:
-        print(f"❌ Error pooling: {e}")
-
+        print(f"❌ Critical Error: {e}")
+        import traceback
+        traceback.print_exc()
 
 # ========= Run =========
-sliding_dir = os.path.join(out_base, "sliding_list")
-process_sliding_list(video_path, sliding_dir, stride=stride)
-
-pool_path = os.path.join(out_base, "avg_pooling.npy")
-process_pooling(video_path, pool_path, stride=stride)
-
+process_video_features(video_path, out_base, stride=stride)
 print("✅ Worker finished\n")
