@@ -18,7 +18,7 @@ fused_dim: 512
 feature_dim: 256
 
 # === ハイパーパラメータ探索 ===
-triplet_margin: 0.3
+triplet_margin: 0.2
 lambda_adv: [0.1, 0.5]
 lambda_cls: [0.05, 0.1]
 lr_enc: [1e-4]
