@@ -285,7 +285,9 @@ def _run_one_fold(
             model_path,
             map_location="cuda" if torch.cuda.is_available() else "cpu"
         )
-        inf_models.load_state_dict(state, strict=True)
+        missing, unexpected = inf_models.load_state_dict(state, strict=False)
+        print("Missing keys:", missing)
+        print("Unexpected keys:", unexpected)
 
         # =========================
         # clustering evaluation
