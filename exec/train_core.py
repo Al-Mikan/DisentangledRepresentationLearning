@@ -303,7 +303,7 @@ def train_step(
     # 2. 行動分類 CE (もし lambda_cls が設定されていれば)
     lambda_cls = float(config.get("lambda_cls", 0.0))
     if lambda_cls > 0:
-        logits_act = models["action_classifier"](a_vec)* 30.0
+        logits_act = models["action_classifier"](a_vec)* 10.0
         ce_act = nn.CrossEntropyLoss()(logits_act, a)
         metrics["action_ce/loss"] = ce_act.item()
         metrics["action_ce/acc"] = (logits_act.argmax(dim=1) == a).float().mean().item()
@@ -393,7 +393,7 @@ def evaluate_model(
 
             # 行動 CE も加える（lambda_cls = 0 の時は実質無効）
             if lambda_cls > 0:
-                logits_act = models["action_classifier"](a_vec)* 30.0
+                logits_act = models["action_classifier"](a_vec)* 10.0
                 ce_act = nn.CrossEntropyLoss()(logits_act, a)
                 loss = loss + lambda_cls * ce_act
 

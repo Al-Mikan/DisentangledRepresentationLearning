@@ -1,6 +1,6 @@
 # config_search.yaml
 # === 実験設定 ===
-project_name: animalkingdom_0105
+project_name: animalkingdom_0107
 experiment_name: triplet_vs_gan
 output_root: ./train_result
 train_label_paths: ./label/train/animalkingdom.csv
@@ -20,7 +20,7 @@ feature_dim: 256
 # === ハイパーパラメータ探索 ===
 triplet_margin: 0.3
 lambda_adv: [0.1, 0.5]
-lambda_cls: [0.1, 0.5]
+lambda_cls: [0.05, 0.1]
 lr_enc: [1e-4]
 lr_disc: [1e-4]
 batch_size: 256
