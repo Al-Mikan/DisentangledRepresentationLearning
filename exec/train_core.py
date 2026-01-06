@@ -60,7 +60,7 @@ def get_loss_fn_and_miner(
                 
         loss_fn = MultiSimilarityLoss(
                     alpha=2.0, 
-                    beta=10.0, 
+                    beta=40.0, 
                     base=triplet_margin,
                     epsilon=0.2          
                 )
