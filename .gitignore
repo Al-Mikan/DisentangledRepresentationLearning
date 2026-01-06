@@ -43,7 +43,6 @@ env/
 /video/
 /vector/
 /flows/
-/label/
 /losses/
 /models/
 /x3d_vector/
