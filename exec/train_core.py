@@ -303,7 +303,7 @@ def train_step(
     # 2. 行動分類 CE (もし lambda_cls が設定されていれば)
     lambda_cls = float(config.get("lambda_cls", 0.0))
     if lambda_cls > 0:
-        logits_act = models["action_classifier"](a_vec)
+        logits_act = models["action_classifier"](a_vec)* 30.0
         ce_act = nn.CrossEntropyLoss()(logits_act, a)
         metrics["action_ce/loss"] = ce_act.item()
         metrics["action_ce/acc"] = (logits_act.argmax(dim=1) == a).float().mean().item()
@@ -393,7 +393,7 @@ def evaluate_model(
 
             # 行動 CE も加える（lambda_cls = 0 の時は実質無効）
             if lambda_cls > 0:
-                logits_act = models["action_classifier"](a_vec)
+                logits_act = models["action_classifier"](a_vec)* 30.0
                 ce_act = nn.CrossEntropyLoss()(logits_act, a)
                 loss = loss + lambda_cls * ce_act
 
@@ -491,6 +491,14 @@ def train_model(
             lr=enc_lr,
             weight_decay=wd,
         )
+    
+    target_optimizer = optimizers["main"] if "main" in optimizers else optimizers["encoder"]
+
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(
+        target_optimizer,
+        milestones=[50, 80],  # ← epoch基準（※あとで調整）
+        gamma=0.1
+    )
 
     # -------------------------------
     # 損失関数と miner
@@ -617,6 +625,8 @@ def train_model(
             no_improve += 1
             if no_improve >= EARLY_STOP_PATIENCE:
                 break
+
+        scheduler.step()
 
     return best_val
 
