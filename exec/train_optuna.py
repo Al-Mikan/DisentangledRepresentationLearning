@@ -160,6 +160,7 @@ def objective(
     # Cross-Validation ありの場合
     # ======================================
     if use_cv:
+        seed = seed + trial.number
         kfold = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
         for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(full_df, full_df["action"])):
