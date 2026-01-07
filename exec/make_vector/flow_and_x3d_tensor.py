@@ -26,7 +26,25 @@ from typing import List
 # ============================================
 # ① RAFT & X3D のロード
 # ============================================
-args = SimpleNamespace(small=False, mixed_precision=True, dropout=0.0, alternate_corr=False)
+class AttrDict(dict):
+    """dict と Namespace のハイブリッド（RAFT 対策）"""
+    def __getattr__(self, name):
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        self[name] = value
+
+
+args = AttrDict(
+    small=False,
+    mixed_precision=True,
+    dropout=0.0,
+    alternate_corr=False,
+)
+
 raft_model = RAFT(args)
 
 state_dict = torch.load("./exec/make_vector/RAFT/models/raft-sintel.pth")
