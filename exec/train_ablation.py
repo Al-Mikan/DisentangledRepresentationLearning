@@ -27,7 +27,7 @@ def load_baseline_json(run_dir: Path) -> dict:
     merged = data.get("params", {}).copy()
     merged.update(data.get("user_attrs", {}))
 
-    # 👇 ablation では使わない情報は全部削除
+    # ablation では不要な情報を削除
     for k in [
         "model_save_path",
         "best_epoch",
@@ -43,18 +43,11 @@ def load_baseline_json(run_dir: Path) -> dict:
 
 
 def merge_config_in_memory(yaml_config: dict, json_config: dict) -> dict:
-    """
-    json_config をベースにしつつ、yaml_config で上書きする。
-    → yaml が強い（優先）
-    """
+    """json_config をベースに yaml_config で上書き（yaml優先）"""
     def recursive_merge(base, override):
         result = base.copy()
         for k, v in override.items():
-            if (
-                isinstance(v, dict)
-                and k in result
-                and isinstance(result[k], dict)
-            ):
+            if isinstance(v, dict) and k in result and isinstance(result[k], dict):
                 result[k] = recursive_merge(result[k], v)
             else:
                 result[k] = v
@@ -64,14 +57,12 @@ def merge_config_in_memory(yaml_config: dict, json_config: dict) -> dict:
 
 
 def save_json(path: Path, data: dict):
-    """JSON で保存 (pretty-print)"""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 def append_result_log(run_dir: Path, record: dict):
-    """JSONL に結果を追記"""
     result_path = run_dir / "logs" / "trial_results.jsonl"
     result_path.parent.mkdir(parents=True, exist_ok=True)
     with open(result_path, "a", encoding="utf-8") as f:
@@ -83,28 +74,21 @@ def append_result_log(run_dir: Path, record: dict):
 # ============================================================
 
 def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
-    """
-    ablation.yml の複数パターンを固定 Trial として実行し
-    各 key/value ごとにモデルファイルを保存する
-    """
 
-    # === 設定ファイル読み込み ===
+    # === 設定読み込み ===
     base_yaml = load_yaml(cfg_path)
     ab_yaml = load_yaml(abl_path)
     run_dir = Path(run_dir_manual)
 
-    # === baseline_config.json 読み込み ===
     baseline_params = load_baseline_json(run_dir)
     print(f"✅ Loaded baseline parameters from {run_dir}/baseline_config.json")
 
-    # === baseline と config_search.yml をマージ ===
     merged_config = merge_config_in_memory(base_yaml, baseline_params)
 
     # === データ読み込み ===
-    # train.py と同様に、config_search.yml の train_label_paths から学習ラベルを構築
-    train_label_paths = merged_config.get("train_label_paths", None)
+    train_label_paths = merged_config.get("train_label_paths")
     if train_label_paths is None:
-        raise RuntimeError("config_search.yml / merged_config に 'train_label_paths' が定義されていません。")
+        raise RuntimeError("❌ train_label_paths が設定されていません")
 
     if isinstance(train_label_paths, str):
         train_label_paths = [train_label_paths]
@@ -113,53 +97,42 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
     for p in train_label_paths:
         df_i = pd.read_csv(p)
         dfs.append(df_i)
-        print(f"  → [ablation] Loaded train CSV from: {p} (rows={len(df_i)})")
-
-    if len(dfs) == 0:
-        raise RuntimeError("[ablation] train_label_paths が指定されていますが、有効な CSV が読み込めませんでした。")
+        print(f"  → Loaded train CSV: {p} (rows={len(df_i)})")
 
     full_df = pd.concat(dfs, ignore_index=True)
-    print(f"  → [ablation] Concatenated train CSVs (total rows={len(full_df)})")
+    print(f"  → Total train rows: {len(full_df)}")
 
     le_act = LabelEncoder().fit(full_df["action"])
-    le_sp = LabelEncoder().fit(full_df["species"])
+    le_sp  = LabelEncoder().fit(full_df["species"])
 
-    # === Study 作成 ===
+    # === Study（ログ用）===
     study = optuna.create_study(direction="maximize", study_name="ablation_fixed_trials")
 
-    # === ablation パターン整理 ===
+    # === ablation specs 展開 ===
     ablation_specs = []
     for key, values in ab_yaml.items():
         if isinstance(values, list):
             for v in values:
                 ablation_specs.append((key, v))
 
-    n_trials = len(ablation_specs)
-    print(f"\n🚀 Enqueued {n_trials} ablation trials")
-    print(ablation_specs)
+    print(f"\n🚀 Starting {len(ablation_specs)} ablation trials")
 
     # ============================================================
-    # ablation_objective
+    # Python loop で完全制御（最重要）
     # ============================================================
 
-    def ablation_objective(trial: optuna.trial.Trial):
-        idx = trial.number
-        if idx >= n_trials:
-            raise optuna.TrialPruned()
+    for idx, (key, value) in enumerate(ablation_specs):
+        print(f"\n🔎 [Ablation {idx+1}/{len(ablation_specs)}] {key} = {value}")
 
-        key, value = ablation_specs[idx]
-        print(f"\n🔎 [Trial {idx}] Running ablation: {key} = {value}")
-
-        # === Trial 専用設定 ===
+        # --- 固定設定を構築 ---
         local_config = json.loads(json.dumps(merged_config))
         local_config[key] = value
 
-        # === train_mode ablation のときだけ adversarial を強制 off ===
         if key == "train_mode":
             print("⚙️ Force adversarial = off (train_mode ablation)")
             local_config["adversarial"] = "off"
 
-        # --- list は baseline を優先 (固定化)---
+        # list 値を固定化
         for k, v in list(local_config.items()):
             if isinstance(v, list):
                 if k in baseline_params and isinstance(baseline_params[k], (str, float, int, bool)):
@@ -167,70 +140,61 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
                 else:
                     local_config[k] = v[0]
 
-        # === Config を保存 ===
-        cfg_log = run_dir / "logs" / f"trial_{idx:03d}_{key}_{value}_config.json"
-        save_json(cfg_log, local_config)
-        print(f"📝 Saved config → {cfg_log}")
-
-        # === 出力フォルダ ===
-        ablation_dir = run_dir / "ablation" / f"{key}" / str(value)
+        ablation_dir = run_dir / "ablation" / key / str(value)
         ablation_dir.mkdir(parents=True, exist_ok=True)
 
-        # === objective 実行 ===
-        try:
-            score = objective(
-                trial,
-                full_df,
-                le_act,
-                le_sp,
-                results_root=ablation_dir,
-                search_space=local_config,
-            )
+        # --- single-shot objective ---
+        def single_objective(trial):
 
-        except Exception as e:
-            import traceback
-            tb = traceback.format_exc()
-            print("❌ objective() failed:\n", tb)
+            cfg_log = run_dir / "logs" / f"trial_{trial.number:03d}_{key}_{value}_config.json"
+            save_json(cfg_log, local_config)
+
+            try:
+                score = objective(
+                    trial,
+                    full_df,
+                    le_act,
+                    le_sp,
+                    results_root=ablation_dir,
+                    search_space=None,        # 探索しない
+                    fixed_config=local_config # 完全固定
+                )
+            except Exception as e:
+                import traceback
+                print(f"❌ Ablation {key}={value} failed:\n{traceback.format_exc()}")
+                append_result_log(run_dir, {
+                    "trial": trial.number,
+                    "key": key,
+                    "value": value,
+                    "score": -1.0,
+                    "error": str(e),
+                })
+                return -1.0
+
+            model_path = trial.user_attrs.get("model_save_path")
+            renamed = None
+            if model_path:
+                renamed = ablation_dir / f"{key}_{value}_best.pth"
+                if renamed.exists():
+                    renamed.unlink()
+                Path(model_path).rename(renamed)
+                trial.set_user_attr("model_save_path", str(renamed))
 
             append_result_log(run_dir, {
-                "trial": idx,
+                "trial": trial.number,
                 "key": key,
                 "value": value,
-                "score": -1.0,
-                "error": str(e),
+                "score": float(score),
+                "model": str(renamed) if renamed else None,
             })
-            return -1.0
 
-        # === モデル保存 ===
-        model_path = trial.user_attrs.get("model_save_path")
-        if model_path:
-            renamed = ablation_dir / f"{key}_{value}_best.pth"
-            if renamed.exists():
-                renamed.unlink()
-            Path(model_path).rename(renamed)
-            trial.set_user_attr("model_save_path", str(renamed))
+            return score
 
-        # === 結果ログ ===
-        append_result_log(run_dir, {
-            "trial": idx,
-            "key": key,
-            "value": value,
-            "score": float(score),
-            "model": trial.user_attrs.get("model_save_path"),
-        })
-
-        print(f"✅ Completed ablation {key}={value} → score={score:.4f}")
-        return score
-
-
-    # ============================================================
-    # 全 Trial 実行
-    # ============================================================
-
-    study.optimize(ablation_objective, n_trials=n_trials, gc_after_trial=True)
+        # --- 1 trial だけ実行 ---
+        study.optimize(single_objective, n_trials=1, gc_after_trial=True)
+        cleanup_memory()
 
     print("\n🎯 All Ablation Trials Completed!\n")
-    cleanup_memory()
 
 
 # ============================================================
@@ -258,7 +222,7 @@ if __name__ == "__main__":
     )
 
     if not all_runs:
-        raise RuntimeError("❌ No run_* directories found under train_result/")
+        raise RuntimeError("❌ No run_* directories found")
 
     latest_run = all_runs[0]
     print(f"▶ Auto-selected latest run directory: {latest_run}")

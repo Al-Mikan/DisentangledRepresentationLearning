@@ -83,14 +83,24 @@ def objective(
     le_act,
     le_sp,
     results_root,
-    search_space,
+    search_space=None,
+    fixed_config=None,
 ):
-    """Optuna探索用の目的関数（1 trial = 1学習）"""
-    if search_space is None:
-        # Ablationの場合：Optuna探索はせず固定パラメータを使用
-        yaml_cfg = trial.params
-    else:
+    if fixed_config is not None:
+        # suggest_from_yml を通さないので、勝手に値が変わるリスクがゼロになる
+        yaml_cfg = fixed_config
+        
+        # ログ用に trial.params に無理やり登録しておく（可読性のため）
+        for k, v in yaml_cfg.items():
+            try:
+                trial.set_user_attr(k, v)
+            except Exception as e: 
+                print(f"エラーが出ました: {e}")
+    elif search_space is not None:
         yaml_cfg = suggest_from_yml(trial, search_space)
+    else:
+        yaml_cfg = trial.params
+
 
     use_cv = bool(yaml_cfg.get("use_cross_validation", True))
     n_splits = int(yaml_cfg.get("cv_splits", 3))
