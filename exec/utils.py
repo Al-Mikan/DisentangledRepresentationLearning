@@ -18,6 +18,8 @@ def detect_vec_root(video_path: str) -> str:
         return "elephant"
     if "animalkingdom" in p:
         return "animalkingdom"
+    if "animalkingdom_augmented" in p:
+        return "animalkingdom_augmented"
     return "animalkingdom"
 
 
