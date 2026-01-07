@@ -182,6 +182,13 @@ def objective(
     if use_aug:
         full_df = full_df.copy()
         full_df["base_video_id"] = full_df["video_path"].apply(get_base_video_id)
+
+        # 🔒 元動画の集合を作る
+        orig_df = full_df[~full_df["video_path"].str.contains("_aug")]
+        valid_base_ids = set(orig_df["base_video_id"])
+
+        # 🔒 augmentation のうち「元動画があるもの」だけ残す
+        full_df = full_df[full_df["base_video_id"].isin(valid_base_ids)]
     else:
         full_df["base_video_id"] = full_df["video_path"]
     # ======================================
