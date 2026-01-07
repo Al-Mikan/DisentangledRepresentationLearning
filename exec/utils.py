@@ -12,15 +12,18 @@ from pathlib import Path
 # =============================================
 def detect_vec_root(video_path: str) -> str:
     p = video_path.lower()
+
+    if "animalkingdom_augmented" in p:
+        return "animalkingdom_augmented"
+    if "animalkingdom" in p:
+        return "animalkingdom"
+
     if "polar" in p:
         return "polar"
     if "elephant" in p:
         return "elephant"
-    if "animalkingdom" in p:
-        return "animalkingdom"
-    if "animalkingdom_augmented" in p:
-        return "animalkingdom_augmented"
     return "animalkingdom"
+
 
 
 # =====================================================

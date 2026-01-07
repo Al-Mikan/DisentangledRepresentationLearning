@@ -1,6 +1,6 @@
 # config_search.yaml
 # === 実験設定 ===
-project_name: animalkingdom_0107
+project_name: animalkingdom_aug
 experiment_name: triplet_vs_gan
 output_root: ./train_result
 train_label_paths: [./label/train/animalkingdom.csv, ./label/train/animalkingdom_augmented.csv]
