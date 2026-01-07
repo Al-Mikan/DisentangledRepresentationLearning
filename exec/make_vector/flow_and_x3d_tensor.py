@@ -151,10 +151,10 @@ def extract_flow_to_x3d(
     os.makedirs(out_norm, exist_ok=True)
     os.makedirs(out_cent, exist_ok=True)
 
-    if os.path.exists(os.path.join(out_norm, "avg_pooling.npy")) and \
-       os.path.exists(os.path.join(out_cent, "avg_pooling.npy")):
-        # print(f"⏩ Skip: {video_name}")
-        return
+    # if os.path.exists(os.path.join(out_norm, "avg_pooling.npy")) and \
+    #    os.path.exists(os.path.join(out_cent, "avg_pooling.npy")):
+    #     # print(f"⏩ Skip: {video_name}")
+    #     return
 
     vr = VideoReader(video_path)
     if len(vr) < clip_len:
@@ -219,7 +219,7 @@ if __name__ == "__main__":
 
     # CSVファイルのリスト
     csv_files = [
-        "./label/train/animalkingdom_augmented.csv",
+        "./label/train/animalkingdom.csv",
         # 必要に応じて追加
     ]
 

@@ -3,14 +3,15 @@
 project_name: animalkingdom_aug
 experiment_name: triplet_vs_gan
 output_root: ./train_result
-train_label_paths: [./label/train/animalkingdom.csv, ./label/train/animalkingdom_augmented.csv]
+train_label_paths:
+  [./label/train/animalkingdom.csv, ./label/train/animalkingdom_augmented.csv]
 test_label_paths: ./label/test/elephant.csv
 
 # === モード設定 ===
 train_mode: [gated] # mae / flow / gated
 loss_type: [triplet] #cosine / triplet
 adversarial: [kl] # True: GAN方式 / False: 通常正則化
-flow_preprocessing: [normal] # normal / centered
+flow_preprocessing: [normal, centered] # normal / centered
 pooling: True
 
 # === モデル設定 ===
