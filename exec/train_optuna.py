@@ -13,6 +13,17 @@ import numpy as np
 # ===============================
 # YAML読み込みとOptunaヘルパー関数
 # ===============================
+import re
+from pathlib import Path
+
+def get_base_video_id(video_path: str) -> str:
+    """
+    xxx_aug0 / xxx_aug1 / xxx_aug2 → xxx
+    """
+    stem = Path(str(video_path).replace("\\", "/")).stem
+    stem = re.sub(r"_aug[0-2]$", "", stem)
+    return stem
+
 
 def load_config(yaml_path: str) -> Dict[str, Any]:
     """YAMLファイルを読み込む（固定値＋探索範囲）"""
@@ -105,6 +116,8 @@ def objective(
     use_cv = bool(yaml_cfg.get("use_cross_validation", True))
     n_splits = int(yaml_cfg.get("cv_splits", 3))
 
+    use_aug = bool(yaml_cfg.get("use_augmentation", False))
+
     config = {
         # =========================
         # 学習設定・モード関連
@@ -166,17 +179,39 @@ def objective(
     val_scores = []
     fold_logs = []
 
+    if use_aug:
+        full_df = full_df.copy()
+        full_df["base_video_id"] = full_df["video_path"].apply(get_base_video_id)
+    else:
+        full_df["base_video_id"] = full_df["video_path"]
     # ======================================
     # Cross-Validation ありの場合
     # ======================================
     if use_cv:
         seed = seed + trial.number
-        kfold = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
-        for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(full_df, full_df["action"])):
-    
-            train_df = full_df.iloc[train_idx].reset_index(drop=True)
-            val_df = full_df.iloc[val_idx].reset_index(drop=True)
+        # base_video_id 単位で代表ラベルを作る
+        base_df = (
+            full_df
+            .groupby("base_video_id")
+            .first()
+            .reset_index()
+        )
+
+        kfold = StratifiedKFold(
+            n_splits=n_splits,
+            shuffle=True,
+            random_state=seed
+        )
+
+        for fold_idx, (train_base_idx, val_base_idx) in enumerate(
+            kfold.split(base_df, base_df["action"])
+        ):
+            train_base_ids = set(base_df.iloc[train_base_idx]["base_video_id"])
+            val_base_ids   = set(base_df.iloc[val_base_idx]["base_video_id"])
+
+            train_df = full_df[full_df["base_video_id"].isin(train_base_ids)].reset_index(drop=True)
+            val_df   = full_df[full_df["base_video_id"].isin(val_base_ids)].reset_index(drop=True)
 
             fold_score = _run_one_fold(
                 trial, config,
@@ -193,10 +228,28 @@ def objective(
     # Cross-Validation OFF（単一 split）
     # ======================================
     else:
-        train_df, val_df = train_test_split(full_df, test_size=0.2, shuffle=True, random_state=seed)
+        base_df = (
+        full_df
+        .groupby("base_video_id")
+        .first()
+        .reset_index()
+        )
+
+        train_base, val_base = train_test_split(
+            base_df,
+            test_size=0.2,
+            shuffle=True,
+            random_state=seed,
+            stratify=base_df["action"],
+        )
+
+        train_df = full_df[full_df["base_video_id"].isin(train_base["base_video_id"])].reset_index(drop=True)
+        val_df   = full_df[full_df["base_video_id"].isin(val_base["base_video_id"])].reset_index(drop=True)
 
         fold_score = _run_one_fold(
-            trial, config, train_df, val_df, le_act, le_sp,
+            trial, config,
+            train_df, val_df,
+            le_act, le_sp,
             results_root, fold=0
         )
         if fold_score is not None:

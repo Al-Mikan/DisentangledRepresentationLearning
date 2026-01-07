@@ -3,7 +3,7 @@
 project_name: animalkingdom_0107
 experiment_name: triplet_vs_gan
 output_root: ./train_result
-train_label_paths: ./label/train/animalkingdom.csv
+train_label_paths: [./label/train/animalkingdom.csv, ./label/train/animalkingdom_augmented.csv]
 test_label_paths: ./label/test/elephant.csv
 
 # === モード設定 ===
@@ -35,3 +35,4 @@ device: cuda
 seed: 50
 use_cross_validation: false
 cv_splits: 3
+use_augmentation: true
