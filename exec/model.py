@@ -40,7 +40,6 @@ class ActionMLPNet(nn.Module):
         super().__init__()
         self.act_embed = nn.Sequential(
             nn.Linear(input_dim, hidden_dim, bias=True),
-            nn.LayerNorm(hidden_dim),      
             nn.ReLU(),
             nn.Dropout(p_drop),               
             nn.Linear(hidden_dim, feature_dim, bias=True),
