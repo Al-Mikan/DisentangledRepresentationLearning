@@ -20,8 +20,8 @@ feature_dim: 256
 
 # === ハイパーパラメータ探索 ===
 triplet_margin: 0.3
-lambda_adv: 0.1
-lambda_cls: 0.1
+lambda_adv: 0
+lambda_cls: 0
 lr_enc: [1e-4]
 lr_disc: [1e-4]
 batch_size: 256

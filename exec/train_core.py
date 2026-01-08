@@ -604,7 +604,6 @@ def train_model(
         )
 
         log_dict = {
-            "epoch": epoch + 1,
             "valid/loss": val_loss,
         }
 
@@ -623,7 +622,7 @@ def train_model(
             log_dict[f"train/{k}"] = float(np.mean(v))
 
         if fold_idx == log_fold:
-            wandb.log(log_dict)
+            wandb.log(log_dict, step=epoch)
 
         # ---- early stopping ----
         if val_loss < best_val:
