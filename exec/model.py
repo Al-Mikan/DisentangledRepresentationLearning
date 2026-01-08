@@ -44,7 +44,6 @@ class ActionMLPNet(nn.Module):
             nn.ReLU(),
             nn.Dropout(p_drop),               
             nn.Linear(hidden_dim, feature_dim, bias=True),
-            nn.LayerNorm(feature_dim)   
         )
         self._init_weights()
 

@@ -175,7 +175,7 @@ def build_and_load_model(params: Dict):
     enc_state = {k.replace(prefix, ""): v
                  for k, v in state_dict.items() if k.startswith(prefix)}
 
-    encoder = ActionMLPNet(D, 256, 256).to(DEVICE).eval()
+    encoder = ActionMLPNet(D, 256, 512).to(DEVICE).eval()
     encoder.load_state_dict(enc_state, strict=False)
     models["encoder"] = encoder
 

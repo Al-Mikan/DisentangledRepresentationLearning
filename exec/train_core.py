@@ -17,7 +17,7 @@ from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 from utils import set_seed
 from utils import MAE_Dataset,X3D_Dataset, X3D_MAE_Dataset
 from model import (
-    ActionClassifier, SimpleMLPNet,  ActionMLPNet,
+    ActionClassifier, ActionMLPNet,
     SpeciesDiscriminator, GatedFusion
 )
 from sklearn.cluster import AgglomerativeClustering
@@ -242,7 +242,7 @@ def _encode_batch(models: nn.ModuleDict, batch, config: Dict[str, Any]):
         alpha = None
     encoder = models["action_encoder"] if "action_encoder" in models else models["net"]
     a_vec = encoder(x)
-    a_vec = torch.nn.functional.normalize(a_vec, p=2, dim=1)
+    # a_vec = torch.nn.functional.normalize(a_vec, p=2, dim=1)
     return a_vec, a, s, alpha
 
 
@@ -460,7 +460,7 @@ def train_model(
     # モデル・オプティマイザ構築
     # -------------------------------
     if adv_enabled:
-        models["action_encoder"] = ActionMLPNet(D, 256, 256).to(DEVICE)
+        models["action_encoder"] = ActionMLPNet(D, 256, 512).to(DEVICE)
         models["discriminator"] = SpeciesDiscriminator(256, num_species).to(DEVICE)
         models["action_classifier"] = ActionClassifier(256, num_actions).to(DEVICE)
 
@@ -483,7 +483,7 @@ def train_model(
             weight_decay=wd,
         )
     else:
-        models["net"] = SimpleMLPNet(D, 256, 256).to(DEVICE)
+        models["net"] = ActionMLPNet(D, 256, 512).to(DEVICE)
         models["action_classifier"] = ActionClassifier(256, num_actions).to(DEVICE)
 
         params = list(models["net"].parameters()) + \
@@ -719,9 +719,9 @@ class DummyTrial:
 def _build_inference_models(config: Dict[str, Any], D: int, fusion: Optional[nn.Module] = None) -> nn.ModuleDict:
     models = nn.ModuleDict()
     if config.get("adversarial", "off") != "off":
-        models["action_encoder"] = ActionMLPNet(D, 256, 256).to(DEVICE)
+        models["action_encoder"] = ActionMLPNet(D, 256, 512).to(DEVICE)
     else:
-        models["net"] = SimpleMLPNet(D, 256, 256).to(DEVICE)
+        models["net"] = ActionMLPNet(D, 256, 512).to(DEVICE)
     if fusion is not None:
         models["fusion"] = fusion.to(DEVICE)
     return models
