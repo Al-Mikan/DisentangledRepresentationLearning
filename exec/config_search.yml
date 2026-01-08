@@ -19,14 +19,14 @@ fused_dim: 512
 feature_dim: 256
 
 # === ハイパーパラメータ探索 ===
-triplet_margin: 0.2
-lambda_adv: 1.0
-lambda_cls: 1.0
+triplet_margin: 0.3
+lambda_adv: 0.1
+lambda_cls: 0.1
 lr_enc: [1e-4]
 lr_disc: [1e-4]
 batch_size: 256
 disc_steps_per_batch: 1
-weight_decay: 1e-2
+weight_decay: 1e-4
 
 # === 学習環境 ===
 epochs: 500
