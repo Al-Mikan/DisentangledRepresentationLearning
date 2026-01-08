@@ -11,11 +11,11 @@ class SimpleMLPNet(nn.Module):
     def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.3):
         super().__init__()
         self.act_embed = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim, bias=True),
+            nn.Linear(input_dim, hidden_dim, bias=False),
             nn.LayerNorm(hidden_dim),      
             nn.ReLU(),
             nn.Dropout(p_drop),               
-            nn.Linear(hidden_dim, feature_dim, bias=True),
+            nn.Linear(hidden_dim, feature_dim, bias=False),
         )
         self._init_weights()
 
@@ -28,9 +28,7 @@ class SimpleMLPNet(nn.Module):
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
+                nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
 
 # -----------------------------
 # 2. Adversarial Discriminator Setup
@@ -86,12 +84,12 @@ class SpeciesDiscriminator(nn.Module):
 class GatedFusion(nn.Module):
     def __init__(self, d_x3d=2048, d_vmae=768, d_hidden=512, p_drop=0.1):
         super().__init__()
-        self.x3d_fc = nn.Linear(d_x3d, d_hidden)
-        self.vmae_fc = nn.Linear(d_vmae, d_hidden)
+        self.x3d_fc  = nn.Linear(d_x3d, d_hidden, bias=False)
+        self.vmae_fc = nn.Linear(d_vmae, d_hidden, bias=False)
         self.x3d_ln = nn.LayerNorm(d_hidden)
         self.vmae_ln = nn.LayerNorm(d_hidden)
         self.gate = nn.Sequential(
-            nn.Linear(d_hidden * 2, d_hidden),
+            nn.Linear(d_hidden * 2, d_hidden, bias=False),
             nn.Sigmoid()
         )
         self.dropout = nn.Dropout(p_drop)
@@ -108,14 +106,8 @@ class GatedFusion(nn.Module):
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-        # ゲート最後の層のバイアスを0に（開始時に中立的なalphaを促進）
-        if isinstance(self.gate[0], nn.Linear):
-            # gate: Linear(d_hidden*2 -> d_hidden) -> LayerNorm -> Sigmoid
-            if self.gate[0].bias is not None:
-                nn.init.zeros_(self.gate[0].bias)
+                nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
+
 
 
 
