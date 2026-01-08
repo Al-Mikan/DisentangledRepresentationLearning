@@ -104,8 +104,8 @@ def compute_distance_stats_epoch(
         if vecs.size(0) < 2:
             continue
 
-        if vecs.size(0) > max_per_class:
-            vecs = vecs[torch.randperm(vecs.size(0))[:max_per_class]]
+        # if vecs.size(0) > max_per_class:
+        #     vecs = vecs[torch.randperm(vecs.size(0))[:max_per_class]]
 
         sim = torch.mm(vecs, vecs.t())
         dist = 1.0 - sim
@@ -119,10 +119,10 @@ def compute_distance_stats_epoch(
         if va.size(0) == 0 or vb.size(0) == 0:
             continue
 
-        if va.size(0) > max_per_class:
-            va = va[torch.randperm(va.size(0))[:max_per_class]]
-        if vb.size(0) > max_per_class:
-            vb = vb[torch.randperm(vb.size(0))[:max_per_class]]
+        # if va.size(0) > max_per_class:
+        #     va = va[torch.randperm(va.size(0))[:max_per_class]]
+        # if vb.size(0) > max_per_class:
+        #     vb = vb[torch.randperm(vb.size(0))[:max_per_class]]
 
         sim = torch.mm(va, vb.t())
         dist = 1.0 - sim
