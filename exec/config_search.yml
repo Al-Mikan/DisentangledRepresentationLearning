@@ -11,7 +11,7 @@ test_label_paths: ./label/test/elephant.csv
 train_mode: [gated] # mae / flow / gated
 loss_type: [triplet] #cosine / triplet
 adversarial: [dann] # True: GAN方式 / False: 通常正則化
-flow_preprocessing: [centered] # normal / centered
+flow_preprocessing: [normal] # normal / centered
 pooling: True
 
 # === モデル設定 ===
@@ -20,8 +20,8 @@ feature_dim: 256
 
 # === ハイパーパラメータ探索 ===
 triplet_margin: 0.3
-lambda_adv: 0
-lambda_cls: 0
+lambda_adv: [0.01, 0.05]
+lambda_cls: [0.01, 0.05]
 lr_enc: [1e-4]
 lr_disc: [1e-4]
 batch_size: 256
