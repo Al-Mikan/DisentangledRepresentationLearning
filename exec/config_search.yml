@@ -10,7 +10,7 @@ test_label_paths: ./label/test/elephant.csv
 # === モード設定 ===
 train_mode: [gated] # mae / flow / gated
 loss_type: [triplet] #cosine / triplet
-adversarial: [kl] # True: GAN方式 / False: 通常正則化
+adversarial: [dann] # True: GAN方式 / False: 通常正則化
 flow_preprocessing: [centered] # normal / centered
 pooling: True
 
