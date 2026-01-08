@@ -34,7 +34,7 @@ class SimpleMLPNet(nn.Module):
 # 2. Adversarial Discriminator Setup
 # -----------------------------
 class ActionMLPNet(nn.Module):
-    def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.3):
+    def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.5):
         super().__init__()
         self.act_embed = nn.Sequential(
             nn.Linear(input_dim, hidden_dim, bias=True),
@@ -109,6 +109,8 @@ class GatedFusion(nn.Module):
         self._init_weights()
 
     def forward(self, x3d, vmae):
+        x3d = F.layer_norm(x3d, x3d.shape[1:])
+        vmae = F.layer_norm(vmae, vmae.shape[1:])
         x3d_proj = self.dropout(torch.relu(self.x3d_ln(self.x3d_fc(x3d))))
         vmae_proj = self.dropout(torch.relu(self.vmae_ln(self.vmae_fc(vmae))))
         concat = torch.cat([x3d_proj, vmae_proj], dim=-1)
