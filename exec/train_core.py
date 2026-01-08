@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import gc
-from triplet_losses import ImprovedTripletLoss, grl, MultiSimilarityLoss
+from triplet_losses import ImprovedTripletLoss, grl
 import numpy as np
 import torch
 from torch import nn
@@ -28,6 +28,10 @@ from sklearn.metrics import matthews_corrcoef
 import itertools
 from sklearn.mixture import GaussianMixture
 
+from pytorch_metric_learning.losses import MultiSimilarityLoss
+from pytorch_metric_learning.distances import CosineSimilarity
+from pytorch_metric_learning.miners import MultiSimilarityMiner
+
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EARLY_STOP_PATIENCE = 50
 
@@ -49,23 +53,38 @@ def get_loss_fn_and_miner(
     triplet_margin: float = 0.1,
 ):
     miner = None
+
     if loss_type == "cosine":
+        # --- Triplet (そのまま) ---
         dist = distances.CosineSimilarity()
-        loss_fn = losses.TripletMarginLoss(distance=dist, margin=triplet_margin)
-        miner = miners.TripletMarginMiner(
-            margin=triplet_margin, distance=dist, type_of_triplets="semihard"
+        loss_fn = losses.TripletMarginLoss(
+            distance=dist,
+            margin=triplet_margin
         )
+        miner = miners.TripletMarginMiner(
+            margin=triplet_margin,
+            distance=dist,
+            type_of_triplets="semihard"
+        )
+
     else:
-        miner = None 
-                
+        # --- Multi-Similarity (公式構成) ---
+        dist = CosineSimilarity()
+
         loss_fn = MultiSimilarityLoss(
-                    alpha=2.0, 
-                    beta=40.0, 
-                    base=triplet_margin,
-                    epsilon=0.2          
-                )
+            alpha=2.0,
+            beta=20.0,          # ★ 40 → 20（安全側）
+            base=0.5,
+            distance=dist
+        )
+
+        miner = MultiSimilarityMiner(
+            epsilon=0.1,        # ★ 0.2 → 0.1（安全側）
+            distance=dist
+        )
 
     return loss_fn, miner
+
 
 
 def compute_distance_stats_epoch(
@@ -95,7 +114,8 @@ def compute_distance_stats_epoch(
         if vecs.size(0) > max_per_class:
             vecs = vecs[torch.randperm(vecs.size(0))[:max_per_class]]
 
-        dist = torch.cdist(vecs, vecs)
+        sim = torch.mm(vecs, vecs.t())
+        dist = 1.0 - sim
         mask = ~torch.eye(dist.size(0), dtype=torch.bool)
         intra_dists.append(dist[mask])
 
@@ -111,7 +131,8 @@ def compute_distance_stats_epoch(
         if vb.size(0) > max_per_class:
             vb = vb[torch.randperm(vb.size(0))[:max_per_class]]
 
-        dist = torch.cdist(va, vb)
+        sim = torch.mm(va, vb.t())
+        dist = 1.0 - sim
         inter_dists.append(dist.flatten())
 
     if not intra_dists or not inter_dists:
@@ -297,7 +318,7 @@ def train_step(
     # 2. 行動分類 CE (もし lambda_cls が設定されていれば)
     lambda_cls = float(config.get("lambda_cls", 0.0))
     if lambda_cls > 0:
-        logits_act = models["action_classifier"](a_vec)* 10.0
+        logits_act = models["action_classifier"](a_vec)
         ce_act = nn.CrossEntropyLoss()(logits_act, a)
         metrics["action_ce/loss"] = ce_act.item()
         metrics["action_ce/acc"] = (logits_act.argmax(dim=1) == a).float().mean().item()
@@ -385,7 +406,7 @@ def evaluate_model(
                 loss = loss_fn(a_vec, a)
             # 行動 CE も加える（lambda_cls = 0 の時は実質無効）
             if lambda_cls > 0:
-                logits_act = models["action_classifier"](a_vec)* 10.0
+                logits_act = models["action_classifier"](a_vec)
                 ce_act = nn.CrossEntropyLoss()(logits_act, a)
                 loss = loss + lambda_cls * ce_act
 
