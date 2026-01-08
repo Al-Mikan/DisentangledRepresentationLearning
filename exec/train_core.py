@@ -620,6 +620,18 @@ def train_model(
         for k, v in epoch_metrics.items():
             log_dict[f"train/{k}"] = float(np.mean(v))
 
+        # ---- alpha statistics (gated only) ----
+        if alpha_parts:
+            alpha_epoch = np.concatenate(alpha_parts, axis=0)  # [N, D]
+
+            wandb.log({
+                "alpha/mean": float(alpha_epoch.mean()),
+                "alpha/std":  float(alpha_epoch.std()),
+                "alpha/min":  float(alpha_epoch.min()),
+                "alpha/max":  float(alpha_epoch.max()),
+            }, step=epoch)
+
+
         if fold_idx == log_fold:
             wandb.log(log_dict, step=epoch)
 
@@ -810,9 +822,9 @@ def compute_classwise_distance_tables(
     """
 
     # ---- normalize (Cosine必須) ----
-    embeddings = torch.nn.functional.normalize(
-        embeddings.detach().cpu(), p=2, dim=1
-    )
+    # embeddings = torch.nn.functional.normalize(
+    #     embeddings.detach().cpu(), p=2, dim=1
+    # )
     labels = labels.detach().cpu()
 
     unique_labels = sorted(labels.unique().tolist())

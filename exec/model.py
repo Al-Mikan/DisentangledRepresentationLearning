@@ -16,7 +16,6 @@ class SimpleMLPNet(nn.Module):
             nn.ReLU(),
             nn.Dropout(p_drop),               
             nn.Linear(hidden_dim, feature_dim, bias=True),
-            nn.LayerNorm(feature_dim)   
         )
         self._init_weights()
 
@@ -103,10 +102,6 @@ class GatedFusion(nn.Module):
         self._init_weights()
 
     def forward(self, x3d, vmae):
-        if x3d.dim() >= 2:
-            x3d = F.layer_norm(x3d, x3d.shape[1:])
-        if vmae.dim() >= 2:
-            vmae = F.layer_norm(vmae, vmae.shape[1:])
         x3d_proj = self.dropout(torch.relu(self.x3d_ln(self.x3d_fc(x3d))))
         vmae_proj = self.dropout(torch.relu(self.vmae_ln(self.vmae_fc(vmae))))
         concat = torch.cat([x3d_proj, vmae_proj], dim=-1)
