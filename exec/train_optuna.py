@@ -94,6 +94,7 @@ def objective(
     le_act,
     le_sp,
     results_root,
+    next_idx,
     search_space=None,
     fixed_config=None,
 ):
@@ -169,7 +170,9 @@ def objective(
             + (f"_{config['flow_preprocessing']}" if config.get("train_mode") in ["flow", "gated"] else "")
         )
 
-    wandb.init(project=config["project_name"], config=config, name=run_name, reinit=True)
+    project_name = config.get("project_name", "optuna")+f"_run_{next_idx:03d}"
+
+    wandb.init(project=project_name, config=config, name=run_name, reinit=True)
 
     trial.set_user_attr("train_mode", config["train_mode"])
     trial.set_user_attr("adversarial", config["adversarial"])

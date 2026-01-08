@@ -126,7 +126,7 @@ def main() -> None:
     )
 
     study.optimize(
-        lambda trial: objective(trial, full_df, le_act, le_sp, results_root, search_space),
+        lambda trial: objective(trial, full_df, le_act, le_sp, results_root, next_idx,search_space),
         n_trials=N_TRIALS_LOCAL,
         gc_after_trial=True,
     )
