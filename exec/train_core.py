@@ -70,9 +70,9 @@ def get_loss_fn_and_miner(
     else:
         # --- Multi-Similarity (公式構成) ---
         loss_fn = MultiSimilarityLoss(
-            alpha=2.0,
-            beta=5.0,
-            base=1.0,
+            alpha=8.0,
+            beta=40.0,
+            base=0.3,
             distance=CosineSimilarity(),
         )
         miner = None
@@ -458,7 +458,7 @@ def train_model(
     # モデル・オプティマイザ構築
     # -------------------------------
     if adv_enabled:
-        models["action_encoder"] = ActionMLPNet(D, 256, 512).to(DEVICE)
+        models["action_encoder"] = ActionMLPNet(input_dim=D, hidden_dim=128, output_dim=512).to(DEVICE)
         models["discriminator"] = SpeciesDiscriminator(256, num_species).to(DEVICE)
         models["action_classifier"] = ActionClassifier(256, num_actions).to(DEVICE)
 
@@ -481,7 +481,7 @@ def train_model(
             weight_decay=wd,
         )
     else:
-        models["net"] = ActionMLPNet(D, 256, 512).to(DEVICE)
+        models["net"] = ActionMLPNet(input_dim=D, hidden_dim=128, output_dim=512).to(DEVICE)
         models["action_classifier"] = ActionClassifier(256, num_actions).to(DEVICE)
 
         params = list(models["net"].parameters()) + \
@@ -728,9 +728,9 @@ class DummyTrial:
 def _build_inference_models(config: Dict[str, Any], D: int, fusion: Optional[nn.Module] = None) -> nn.ModuleDict:
     models = nn.ModuleDict()
     if config.get("adversarial", "off") != "off":
-        models["action_encoder"] = ActionMLPNet(D, 256, 512).to(DEVICE)
+        models["action_encoder"] = ActionMLPNet(input_dim=D, hidden_dim=128, output_dim=512).to(DEVICE)
     else:
-        models["net"] = ActionMLPNet(D, 256, 512).to(DEVICE)
+        models["net"] = ActionMLPNet(input_dim=D, hidden_dim=128, output_dim=512).to(DEVICE)
     if fusion is not None:
         models["fusion"] = fusion.to(DEVICE)
     return models
