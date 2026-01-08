@@ -95,7 +95,6 @@ class GatedFusion(nn.Module):
         self.vmae_ln = nn.LayerNorm(d_hidden)
         self.gate = nn.Sequential(
             nn.Linear(d_hidden * 2, d_hidden),
-            nn.LayerNorm(d_hidden), 
             nn.Sigmoid()
         )
         self.dropout = nn.Dropout(p_drop)

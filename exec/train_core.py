@@ -84,7 +84,6 @@ def get_loss_fn_and_miner(
 def compute_distance_stats_epoch(
     embeddings: torch.Tensor,  # [N, D]
     labels: torch.Tensor,      # [N]
-    max_per_class: int = 50,
 ):
     """
     valid embedding から
@@ -188,7 +187,7 @@ def build_datasets_and_loaders(
                                         centered=centered, pooling=pooling)
 
         # X3D_dim=2048, MAE_dim=768 → config["fused_dim"]
-        fusion_model = GatedFusion(2048, 768, int(config["fused_dim"])).to(DEVICE)
+        fusion_model = GatedFusion(2048, 768, ).to(DEVICE)
 
     else:
         raise ValueError(f"Unknown train_mode: {train_mode}")
@@ -599,7 +598,6 @@ def train_model(
         dist_stats = compute_distance_stats_epoch(
             embeddings=val_embeds,
             labels=val_labels,
-            max_per_class=50,
         )
 
         log_dict = {
