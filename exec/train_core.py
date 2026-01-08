@@ -69,19 +69,13 @@ def get_loss_fn_and_miner(
 
     else:
         # --- Multi-Similarity (公式構成) ---
-        dist = CosineSimilarity()
-
         loss_fn = MultiSimilarityLoss(
-            alpha=3.0,
-            beta=20.0,          # ★ 40 → 20（安全側）
+            alpha=8.0,
+            beta=40.0,
             base=0.5,
-            distance=dist
+            distance=CosineSimilarity(),
         )
-
-        miner = MultiSimilarityMiner(
-            epsilon=0.1,        # ★ 0.2 → 0.1（安全側）
-            distance=dist
-        )
+        miner = None
 
     return loss_fn, miner
 
@@ -350,7 +344,7 @@ def train_step(
     total_loss.backward()
 
     enc = models["action_encoder"] if "action_encoder" in models else models["net"]
-    nn.utils.clip_grad_norm_(enc.parameters(), 5.0)
+    nn.utils.clip_grad_norm_(enc.parameters(), 1.0)
     main_opt.step()
 
     alpha_np = alpha.detach().cpu().numpy() if alpha is not None else None
@@ -507,11 +501,14 @@ def train_model(
     
     target_optimizer = optimizers["main"] if "main" in optimizers else optimizers["encoder"]
 
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        target_optimizer,
-        milestones=[50, 80],  # ← epoch基準（※あとで調整）
-        gamma=0.1
-    )
+    # scheduler = torch.optim.lr_scheduler.MultiStepLR(
+    #     target_optimizer,
+    #     milestones=[50, 80],  # ← epoch基準（※あとで調整）
+    #     gamma=0.1
+    # )
+
+    scheduler=None
+
 
     # -------------------------------
     # 損失関数と miner
@@ -656,7 +653,8 @@ def train_model(
             if no_improve >= EARLY_STOP_PATIENCE:
                 break
 
-        scheduler.step()
+        if scheduler is not None:
+            scheduler.step()
 
     return best_val
 
