@@ -459,8 +459,8 @@ def train_model(
     # -------------------------------
     if adv_enabled:
         models["action_encoder"] = ActionMLPNet(input_dim=D, feature_dim=128, hidden_dim=512).to(DEVICE)
-        models["discriminator"] = SpeciesDiscriminator(256, num_species).to(DEVICE)
-        models["action_classifier"] = ActionClassifier(256, num_actions).to(DEVICE)
+        models["discriminator"] = SpeciesDiscriminator(128, num_species).to(DEVICE)
+        models["action_classifier"] = ActionClassifier(128, num_actions).to(DEVICE)
 
         params_enc = list(models["action_encoder"].parameters()) + \
                      list(models["action_classifier"].parameters())
@@ -482,7 +482,7 @@ def train_model(
         )
     else:
         models["net"] = ActionMLPNet(input_dim=D, feature_dim=128, hidden_dim=512).to(DEVICE)
-        models["action_classifier"] = ActionClassifier(256, num_actions).to(DEVICE)
+        models["action_classifier"] = ActionClassifier(128, num_actions).to(DEVICE)
 
         params = list(models["net"].parameters()) + \
                  list(models["action_classifier"].parameters())
