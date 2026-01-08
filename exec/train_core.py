@@ -91,7 +91,6 @@ def compute_distance_stats_epoch(
     intra / inter 距離の mean / var を計算
     """
     embeddings = embeddings.detach().cpu()
-    embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
     labels = labels.detach().cpu()
 
     intra_dists = []
