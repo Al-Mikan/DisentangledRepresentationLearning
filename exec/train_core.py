@@ -613,6 +613,23 @@ def train_model(
             no_improve = 0
             torch.save(models.state_dict(), save_path)
             trial.set_user_attr("model_save_path", str(save_path))
+            # ===============================
+            # class × class table（trial 1回）
+            # ===============================
+            df_mean, df_var = compute_classwise_distance_tables(
+                val_embeds,
+                val_labels,
+                le_act,
+                max_per_class=50,
+            )
+
+            log_classwise_tables_once_per_trial(
+                df_mean,
+                df_var,
+                epoch=epoch + 1,
+                trial_number=trial.number,
+                prefix="valid",
+            )
         else:
             no_improve += 1
             if no_improve >= EARLY_STOP_PATIENCE:
@@ -693,12 +710,15 @@ def _build_inference_models(config: Dict[str, Any], D: int, fusion: Optional[nn.
 
 
 def _compute_embeddings(models: nn.ModuleDict, loader: DataLoader, config: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]:
-    xs: List[np.ndarray] = []; ys: List[np.ndarray] = []
-    for m in models.values(): m.eval()
+    xs: List[np.ndarray] = []
+    ys: List[np.ndarray] = []
+    for m in models.values():
+        m.eval()
     with torch.no_grad():
         for batch in loader:
             a_vec, a, _s, _alpha = _encode_batch(models, batch, config)
-            xs.append(a_vec.detach().cpu().numpy()); ys.append(a.detach().cpu().numpy())
+            xs.append(a_vec.detach().cpu().numpy())
+            ys.append(a.detach().cpu().numpy())
     return np.concatenate(xs, axis=0), np.concatenate(ys, axis=0)
 
 
@@ -754,3 +774,135 @@ def _compute_clustering_metrics(
 
     return results
 
+
+
+import torch
+import pandas as pd
+
+def compute_classwise_distance_tables(
+    embeddings: torch.Tensor,   # [N, D]
+    labels: torch.Tensor,       # [N]
+    label_encoder,
+    max_per_class: int = 50,
+):
+    """
+    クラス×クラスの
+    - mean cosine distance
+    - variance of cosine distance
+    を DataFrame で返す
+    """
+
+    # ---- normalize (Cosine必須) ----
+    embeddings = torch.nn.functional.normalize(
+        embeddings.detach().cpu(), p=2, dim=1
+    )
+    labels = labels.detach().cpu()
+
+    unique_labels = sorted(labels.unique().tolist())
+    
+    # 安全策: ラベルIDが範囲外でないかチェック
+    class_names = []
+    for i in unique_labels:
+        if 0 <= i < len(label_encoder.classes_):
+            class_names.append(label_encoder.classes_[i])
+        else:
+            class_names.append(f"class_{i}")
+
+    # ---- collect vectors per class ----
+    class_vecs = {}
+    for lbl in unique_labels:
+        vecs = embeddings[labels == lbl]
+        if vecs.size(0) == 0:
+            continue
+        if vecs.size(0) > max_per_class:
+            vecs = vecs[torch.randperm(vecs.size(0))[:max_per_class]]
+        class_vecs[lbl] = vecs
+
+    n = len(unique_labels)
+    mean_mat = torch.zeros(n, n)
+    var_mat  = torch.zeros(n, n)
+
+    for ii, i in enumerate(unique_labels):
+        vi = class_vecs.get(i)
+        for jj, j in enumerate(unique_labels):
+            vj = class_vecs.get(j)
+            
+            if vi is None or vj is None:
+                continue
+
+            # sim: (Ni, Nj)
+            sim_matrix = torch.mm(vi, vj.t())
+            
+            # distance = 1.0 - sim
+            dist_vals = 1.0 - sim_matrix
+            dist_vals = torch.clamp(dist_vals, 0.0, 2.0)
+
+            # intra: self-distance (対角成分=0) を除外して計算
+            if i == j:
+                mask = ~torch.eye(dist_vals.size(0), dtype=torch.bool)
+                vals = dist_vals[mask]
+                # データが1つしかない場合は分散計算できないので0埋め
+                if vals.size(0) == 0:
+                    mean_mat[ii, jj] = 0.0
+                    var_mat[ii, jj]  = 0.0
+                    continue
+            else:
+                vals = dist_vals.flatten()
+
+            mean_mat[ii, jj] = vals.mean()
+            var_mat[ii, jj]  = vals.var(unbiased=False)
+
+    df_mean = pd.DataFrame(
+        mean_mat.numpy(),
+        index=class_names,
+        columns=class_names,
+    )
+    df_var = pd.DataFrame(
+        var_mat.numpy(),
+        index=class_names,
+        columns=class_names,
+    )
+
+    return df_mean, df_var
+
+
+def log_classwise_tables_once_per_trial(
+    df_mean,
+    df_var,
+    epoch: int,
+    trial_number: int,
+    prefix: str = "valid",
+):
+    # ===== Table =====
+    wandb.log({
+        f"{prefix}/classwise_mean_table": wandb.Table(
+            dataframe=df_mean.reset_index()
+        ),
+        f"{prefix}/classwise_var_table": wandb.Table(
+            dataframe=df_var.reset_index()
+        ),
+        "epoch": epoch,
+    })
+
+    # ===== Artifact =====
+    tmp_dir = Path("wandb_tables_tmp")
+    tmp_dir.mkdir(exist_ok=True)
+
+    mean_path = tmp_dir / f"classwise_mean_trial{trial_number:03d}_epoch{epoch:03d}.csv"
+    var_path  = tmp_dir / f"classwise_var_trial{trial_number:03d}_epoch{epoch:03d}.csv"
+
+    df_mean.to_csv(mean_path)
+    df_var.to_csv(var_path)
+
+    artifact = wandb.Artifact(
+        name=f"classwise_distance_tables_trial{trial_number:03d}_epoch{epoch:03d}",
+        type="analysis",
+        metadata={
+            "trial": trial_number,
+            "epoch": epoch,
+        }
+    )
+
+    artifact.add_file(str(mean_path))
+    artifact.add_file(str(var_path))
+    wandb.log_artifact(artifact)
