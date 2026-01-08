@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import gc
 from triplet_losses import ImprovedTripletLoss, grl
+import torch.nn.functional as F
 import numpy as np
 import torch
 from torch import nn
@@ -217,6 +218,7 @@ def build_datasets_and_loaders(
 def _encode_batch(models: nn.ModuleDict, batch, config: Dict[str, Any]):
     if config["train_mode"] == "gated":
         x3d, vmae, a, s = batch
+        
         x3d = x3d.to(DEVICE).squeeze(1)
         vmae = vmae.to(DEVICE)
         a = a.to(DEVICE, dtype=torch.long)
@@ -254,11 +256,45 @@ def train_step(
     le_sp: LabelEncoder,
     lambda_p: float,
     species_prior: Optional[torch.Tensor] = None,
+    current_step: int = 0,
 ) -> Tuple[Dict[str, float], Optional[np.ndarray]]:
 
     metrics = {}
     for m in models.values():
         m.train()
+    # ===== DEBUG: input similarity check (only once) =====
+    if current_step == 0:
+        if config["train_mode"] == "gated":
+            x3d_dbg, vmae_dbg, a_dbg, s_dbg = batch
+
+            # X3D
+            x3d_dbg = x3d_dbg.to(DEVICE).squeeze(1).float()
+            x3d_norm = F.normalize(x3d_dbg, dim=1)
+            sim_x3d = x3d_norm @ x3d_norm.T
+            print(
+                f"⚠️ INPUT X3D  : mean={sim_x3d.mean():.4f}, "
+                f"var={sim_x3d.var(unbiased=False):.6f}"
+            )
+
+            # VMAE
+            vmae_dbg = vmae_dbg.to(DEVICE).float()
+            vmae_norm = F.normalize(vmae_dbg, dim=1)
+            sim_vmae = vmae_norm @ vmae_norm.T
+            print(
+                f"⚠️ INPUT VMAE : mean={sim_vmae.mean():.4f}, "
+                f"var={sim_vmae.var(unbiased=False):.6f}"
+            )
+
+        else:
+            x_dbg, a_dbg, s_dbg = batch
+            x_dbg = x_dbg.to(DEVICE).float()
+            x_norm = F.normalize(x_dbg, dim=1)
+            sim = x_norm @ x_norm.T
+            print(
+                f"⚠️ INPUT FEAT : mean={sim.mean():.4f}, "
+                f"var={sim.var(unbiased=False):.6f}"
+            )
+    # ====================================================
 
     # 特徴抽出 (Forward)
     a_vec, a, s, alpha = _encode_batch(models, batch, config)
@@ -565,7 +601,7 @@ def train_model(
 
             metrics, alpha_np = train_step(
                 models, batch, loss_fn, miner,
-                optimizers, config, le_sp, lambda_p, species_prior
+                optimizers, config, le_sp, lambda_p, species_prior, current_step
             )
 
             for k, v in metrics.items():
