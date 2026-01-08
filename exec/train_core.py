@@ -70,9 +70,9 @@ def get_loss_fn_and_miner(
     else:
         # --- Multi-Similarity (公式構成) ---
         loss_fn = MultiSimilarityLoss(
-            alpha=8.0,
-            beta=40.0,
-            base=0.3,
+            alpha=2.0,
+            beta=5.0,
+            base=1.0,
             distance=CosineSimilarity(),
         )
         miner = None
