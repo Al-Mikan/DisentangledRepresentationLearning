@@ -22,6 +22,7 @@ class SimpleMLPNet(nn.Module):
 
     def forward(self, x):
         x = self.act_embed(x)
+        x = F.normalize(x, p=2, dim=1)
         return x
         # return F.normalize(x, dim=-1)
 
@@ -49,6 +50,7 @@ class ActionMLPNet(nn.Module):
 
     def forward(self, x):
         x = self.act_embed(x)
+        x = F.normalize(x, p=2, dim=1)
         return x
         # return F.normalize(x, dim=-1)
 
