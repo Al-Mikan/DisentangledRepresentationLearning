@@ -37,9 +37,13 @@ class ActionMLPNet(nn.Module):
     def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.3):
         super().__init__()
         self.act_embed = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim, bias=False),
-            nn.ReLU(),
+            nn.Linear(input_dim, hidden_dim, bias=True),
+            
+            # ReLU の代わりに LeakyReLU を採用 (傾き0.1)
+            nn.LeakyReLU(0.1),
+            
             nn.Dropout(p_drop),
+            
             nn.Linear(hidden_dim, feature_dim, bias=False),
         )
         self._init_weights()
@@ -52,7 +56,16 @@ class ActionMLPNet(nn.Module):
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
+                # ▼▼▼ 重要: LeakyReLU 用の設定に変更 ▼▼▼
+                # nonlinearity='leaky_relu' と、傾き a=0.1 を指定
+                nn.init.kaiming_uniform_(
+                    m.weight, 
+                    mode='fan_in', 
+                    nonlinearity='leaky_relu', 
+                    a=0.1
+                )
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
 
 class SpeciesDiscriminator(nn.Module):
