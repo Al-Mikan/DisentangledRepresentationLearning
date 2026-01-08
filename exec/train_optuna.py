@@ -247,7 +247,7 @@ def objective(
 
         train_base, val_base = train_test_split(
             base_df,
-            test_size=0.2,
+            test_size=0.1,
             shuffle=True,
             random_state=seed,
             stratify=base_df["action"],
