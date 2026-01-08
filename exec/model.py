@@ -95,7 +95,7 @@ class SpeciesDiscriminator(nn.Module):
 # 4. Gated Fusion
 # -----------------------------
 class GatedFusion(nn.Module):
-    def __init__(self, d_x3d=2048, d_vmae=768, d_hidden=512, p_drop=0.1):
+    def __init__(self, d_x3d=2048, d_vmae=768, d_hidden=512, p_drop=0.5):
         super().__init__()
         self.x3d_fc  = nn.Linear(d_x3d, d_hidden, bias=False)
         self.vmae_fc = nn.Linear(d_vmae, d_hidden, bias=False)

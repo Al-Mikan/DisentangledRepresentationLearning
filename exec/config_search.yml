@@ -26,7 +26,7 @@ lr_enc: [1e-4]
 lr_disc: [1e-4]
 batch_size: 256
 disc_steps_per_batch: 1
-weight_decay: 1e-4
+weight_decay: 1e-3
 
 # === 学習環境 ===
 epochs: 500
