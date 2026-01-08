@@ -72,7 +72,7 @@ def get_loss_fn_and_miner(
         dist = CosineSimilarity()
 
         loss_fn = MultiSimilarityLoss(
-            alpha=2.0,
+            alpha=3.0,
             beta=20.0,          # ★ 40 → 20（安全側）
             base=0.5,
             distance=dist
