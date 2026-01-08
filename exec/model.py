@@ -39,10 +39,10 @@ class ActionMLPNet(nn.Module):
     def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.3):
         super().__init__()
         self.act_embed = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim, bias=True),
+            nn.Linear(input_dim, hidden_dim, bias=False),
             nn.ReLU(),
-            nn.Dropout(p_drop),               
-            nn.Linear(hidden_dim, feature_dim, bias=True),
+            nn.Dropout(p_drop),
+            nn.Linear(hidden_dim, feature_dim, bias=False),
         )
         self._init_weights()
 
@@ -50,14 +50,12 @@ class ActionMLPNet(nn.Module):
         x = self.act_embed(x)
         x = F.normalize(x, p=2, dim=1)
         return x
-        # return F.normalize(x, dim=-1)
 
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
+                nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
+
 
 class SpeciesDiscriminator(nn.Module):
     def __init__(self, feature_dim, num_species):
