@@ -233,7 +233,7 @@ def _encode_batch(models: nn.ModuleDict, batch, config: Dict[str, Any]):
         s = s.to(DEVICE, dtype=torch.long)
         
         # Flatten if not pooled
-        if x.dim() == 3:
+        if x.dim() == 3 and not config.get("pooling", True):
             b, t, d = x.shape
             x = x.reshape(b * t, d)
             a = a.unsqueeze(1).expand(b, t).reshape(-1)
@@ -413,34 +413,46 @@ def evaluate_model(
     config: Dict[str, Any],
     loss_fn: nn.Module,
     miner: Optional[nn.Module],
-) -> float:
-    """
-    valid でも train と同じく
-    metric loss + lambda_cls * CE を使って val_loss を計算
-    """
+):
     for m in models.values():
         m.eval()
-    losses_acc: List[float] = []
+
+    metric_losses = []
+    ce_losses = []
+    accs = []
+
     lambda_cls = float(config.get("lambda_cls", 0.0))
 
     with torch.no_grad():
         for batch in loader:
             a_vec, a, _s, _alpha = _encode_batch(models, batch, config)
 
+            # --- metric loss ---
+            metric_loss = loss_fn(a_vec, a)
+            metric_losses.append(metric_loss.item())
 
-            if isinstance(loss_fn, MultiSimilarityLoss):
-                 loss = loss_fn(a_vec, a)
-            else:
-                loss = loss_fn(a_vec, a)
-            # 行動 CE も加える（lambda_cls = 0 の時は実質無効）
+            total_loss = metric_loss
+
+            # --- action CE ---
             if lambda_cls > 0:
-                logits_act = models["action_classifier"](a_vec)
-                ce_act = nn.CrossEntropyLoss()(logits_act, a)
-                loss = loss + lambda_cls * ce_act
+                logits = models["action_classifier"](a_vec)
+                ce = nn.CrossEntropyLoss()(logits, a)
+                ce_losses.append(ce.item())
 
-            losses_acc.append(float(loss.item()))
+                pred = logits.argmax(dim=1)
+                accs.append((pred == a).float().mean().item())
 
-    return float(np.mean(losses_acc)) if losses_acc else float("inf")
+                total_loss = total_loss + lambda_cls * ce
+
+        return {
+            "metric_loss": float(np.mean(metric_losses)),
+            "action_ce": float(np.mean(ce_losses)) if ce_losses else 0.0,
+            "action_acc": float(np.mean(accs)) if accs else 0.0,
+            "total_loss": float(
+                np.mean(metric_losses)
+                + lambda_cls * (np.mean(ce_losses) if ce_losses else 0.0)
+            ),
+        }
 
 def get_dann_lambda(p: float, gamma: float = 5.0) -> float:
     """
@@ -613,7 +625,7 @@ def train_model(
             current_step += 1
 
         # ---- validation ----
-        val_loss = evaluate_model(models, val_loader, config, loss_fn, miner)
+        val_metrics = evaluate_model(models, val_loader, config, loss_fn, miner)
 
         # ---- collect valid embeddings (epoch-wise) ----
         val_embeds = []
@@ -637,7 +649,10 @@ def train_model(
         )
 
         log_dict = {
-            "valid/loss": val_loss,
+            "valid/metric_loss": val_metrics["metric_loss"],
+            "valid/action_ce":   val_metrics["action_ce"],
+            "valid/action_acc":  val_metrics["action_acc"],
+            "valid/total_loss":  val_metrics["total_loss"],
         }
 
         if dist_stats is not None:
@@ -670,8 +685,8 @@ def train_model(
             wandb.log(log_dict, step=epoch)
 
         # ---- early stopping ----
-        if val_loss < best_val:
-            best_val = val_loss
+        if val_metrics["total_loss"] < best_val:
+            best_val = val_metrics["total_loss"]
             no_improve = 0
             torch.save(models.state_dict(), save_path)
             trial.set_user_attr("model_save_path", str(save_path))
