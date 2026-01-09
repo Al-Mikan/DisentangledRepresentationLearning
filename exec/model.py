@@ -120,7 +120,7 @@ class GatedFusion(nn.Module):
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
+                nn.init.kaiming_uniform_(m.weight, nonlinearity="linear")
 
 
 
