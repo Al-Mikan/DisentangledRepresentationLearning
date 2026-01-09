@@ -188,7 +188,7 @@ def build_datasets_and_loaders(
                                         centered=centered, pooling=pooling)
 
         # X3D_dim=2048, MAE_dim=768 → config["fused_dim"]
-        fusion_model = GatedFusion(2048, 768, ).to(DEVICE)
+        fusion_model = GatedFusion(2048, 768, config.get("fused_dim", 512)).to(DEVICE)
 
     else:
         raise ValueError(f"Unknown train_mode: {train_mode}")
@@ -506,9 +506,9 @@ def train_model(
     # モデル・オプティマイザ構築
     # -------------------------------
     if adv_enabled:
-        models["action_encoder"] = ActionMLPNet(input_dim=D, feature_dim=128, hidden_dim=512).to(DEVICE)
-        models["discriminator"] = SpeciesDiscriminator(128, num_species).to(DEVICE)
-        models["action_classifier"] = ActionClassifier(128, num_actions).to(DEVICE)
+        models["action_encoder"] = ActionMLPNet(input_dim=512, feature_dim=256, hidden_dim=512).to(DEVICE)
+        models["discriminator"] = SpeciesDiscriminator(256, num_species).to(DEVICE)
+        models["action_classifier"] = ActionClassifier(256, num_actions).to(DEVICE)
 
         params_enc = list(models["action_encoder"].parameters()) + \
                      list(models["action_classifier"].parameters())
@@ -529,8 +529,8 @@ def train_model(
             weight_decay=wd,
         )
     else:
-        models["net"] = ActionMLPNet(input_dim=D, feature_dim=128, hidden_dim=512).to(DEVICE)
-        models["action_classifier"] = ActionClassifier(128, num_actions).to(DEVICE)
+        models["net"] = ActionMLPNet(input_dim=512, feature_dim=256, hidden_dim=512).to(DEVICE)
+        models["action_classifier"] = ActionClassifier(256, num_actions).to(DEVICE)
 
         params = list(models["net"].parameters()) + \
                  list(models["action_classifier"].parameters())
@@ -779,9 +779,9 @@ class DummyTrial:
 def _build_inference_models(config: Dict[str, Any], D: int, fusion: Optional[nn.Module] = None) -> nn.ModuleDict:
     models = nn.ModuleDict()
     if config.get("adversarial", "off") != "off":
-        models["action_encoder"] = ActionMLPNet(input_dim=D, feature_dim=128, hidden_dim=512).to(DEVICE)
+        models["action_encoder"] = ActionMLPNet(input_dim=512, feature_dim=256, hidden_dim=512).to(DEVICE)
     else:
-        models["net"] = ActionMLPNet(input_dim=D, feature_dim=128, hidden_dim=512).to(DEVICE)
+        models["net"] = ActionMLPNet(input_dim=512, feature_dim=256, hidden_dim=512).to(DEVICE)
     if fusion is not None:
         models["fusion"] = fusion.to(DEVICE)
     return models

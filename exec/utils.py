@@ -195,15 +195,15 @@ class X3D_MAE_Dataset(BaseDataset):
                 torch.tensor(row["action"], dtype=torch.long),
                 torch.tensor(row["species"], dtype=torch.long),
             )
-
-        mae_mat = self._load_sliding(mb / "sliding_list")
-        T = min(x3d.shape[0], mae_mat.shape[0])
-        return (
-            torch.tensor(x3d[:T], dtype=torch.float32),
-            torch.tensor(mae_mat[:T], dtype=torch.float32),
-            torch.tensor(row["action"], dtype=torch.long),
-            torch.tensor(row["species"], dtype=torch.long),
-        )
+        else:
+            mae_mat = self._load_sliding(mb / "sliding_list")
+            T = min(x3d.shape[0], mae_mat.shape[0])
+            return (
+                torch.tensor(x3d[:T], dtype=torch.float32),
+                torch.tensor(mae_mat[:T], dtype=torch.float32),
+                torch.tensor(row["action"], dtype=torch.long),
+                torch.tensor(row["species"], dtype=torch.long),
+            )
 
 
 def set_seed(seed: int) -> None:

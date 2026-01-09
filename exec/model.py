@@ -34,7 +34,7 @@ class SimpleMLPNet(nn.Module):
 # 2. Adversarial Discriminator Setup
 # -----------------------------
 class ActionMLPNet(nn.Module):
-    def __init__(self, input_dim=768, feature_dim=256, hidden_dim=512, p_drop=0.5):
+    def __init__(self, input_dim=512, feature_dim=256, hidden_dim=512, p_drop=0.5):
         super().__init__()
         self.act_embed = nn.Sequential(
             nn.Linear(input_dim, hidden_dim, bias=True),
@@ -56,8 +56,6 @@ class ActionMLPNet(nn.Module):
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                # ▼▼▼ 重要: LeakyReLU 用の設定に変更 ▼▼▼
-                # nonlinearity='leaky_relu' と、傾き a=0.1 を指定
                 nn.init.kaiming_uniform_(
                     m.weight, 
                     mode='fan_in', 
@@ -95,7 +93,7 @@ class SpeciesDiscriminator(nn.Module):
 # 4. Gated Fusion
 # -----------------------------
 class GatedFusion(nn.Module):
-    def __init__(self, d_x3d=2048, d_vmae=768, d_hidden=512, p_drop=0.5):
+    def __init__(self, d_x3d=2048, d_vmae=768, d_hidden=512):
         super().__init__()
         self.x3d_fc  = nn.Linear(d_x3d, d_hidden, bias=False)
         self.vmae_fc = nn.Linear(d_vmae, d_hidden, bias=False)
