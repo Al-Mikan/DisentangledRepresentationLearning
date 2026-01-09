@@ -99,23 +99,22 @@ class GatedFusion(nn.Module):
         super().__init__()
         self.x3d_fc  = nn.Linear(d_x3d, d_hidden, bias=False)
         self.vmae_fc = nn.Linear(d_vmae, d_hidden, bias=False)
-        self.x3d_ln = nn.LayerNorm(d_hidden)
+        self.x3d_ln  = nn.LayerNorm(d_hidden)
         self.vmae_ln = nn.LayerNorm(d_hidden)
         self.gate = nn.Sequential(
             nn.Linear(d_hidden * 2, d_hidden, bias=False),
             nn.Sigmoid()
         )
-        self.dropout = nn.Dropout(p_drop)
         self._init_weights()
 
     def forward(self, x3d, vmae):
-        x3d = F.layer_norm(x3d, x3d.shape[1:])
-        vmae = F.layer_norm(vmae, vmae.shape[1:])
-        x3d_proj = self.dropout(torch.relu(self.x3d_ln(self.x3d_fc(x3d))))
-        vmae_proj = self.dropout(torch.relu(self.vmae_ln(self.vmae_fc(vmae))))
+        x3d_proj  = self.x3d_ln(self.x3d_fc(x3d))
+        vmae_proj = self.vmae_ln(self.vmae_fc(vmae))
+
         concat = torch.cat([x3d_proj, vmae_proj], dim=-1)
         alpha = self.gate(concat)
         fused = alpha * x3d_proj + (1 - alpha) * vmae_proj
+
         return fused, alpha
 
     def _init_weights(self):
@@ -137,21 +136,10 @@ class ActionClassifier(nn.Module):
         self,
         in_dim: int,
         num_actions: int,
-        hidden_dim: int = 0,
-        dropout: float = 0.0,
     ):
         super().__init__()
 
-        # hidden_dim <= 0 のときは Linear 1層
-        if hidden_dim <= 0:
-            self.net = nn.Linear(in_dim, num_actions)
-        else:
-            self.net = nn.Sequential(
-                nn.Linear(in_dim, hidden_dim),
-                nn.ReLU(inplace=True),
-                nn.Dropout(dropout),
-                nn.Linear(hidden_dim, num_actions),
-            )
+        self.net = nn.Linear(in_dim, num_actions)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
