@@ -5,7 +5,7 @@ experiment_name: triplet_vs_gan
 output_root: ./train_result
 train_label_paths:
   [./label/train/animalkingdom.csv]
-test_label_paths: ./label/test/elephant.csv
+test_label_paths: [./label/test/elephant.csv,"./label/test/polar.csv"]
 
 # === モード設定 ===
 train_mode: [gated] # mae / flow / gated
@@ -24,7 +24,7 @@ feature_dim: 256
 lr_enc: [1.0e-5, 5.0e-5, 1.0e-4, 3.0e-4]
   
 # Action Classification Weight
-lambda_cls: [0.1, 0.5, 1.0]
+lambda_cls: [0.05,0.1, 0.5, 1.0]
   
 # Adversarial Weight (DANN)
 # 固定値で入るので、初期は小さめが良い (0.1以上は不安定になりがち)
