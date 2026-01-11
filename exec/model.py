@@ -38,6 +38,7 @@ class ActionMLPNet(nn.Module):
         super().__init__()
         self.act_embed = nn.Sequential(
             nn.Linear(input_dim, hidden_dim, bias=True),
+            nn.LayerNorm(hidden_dim),  # 学習安定化のため追加
             
             # ReLU の代わりに LeakyReLU を採用 (傾き0.1)
             nn.LeakyReLU(0.1),
