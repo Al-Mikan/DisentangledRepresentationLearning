@@ -55,9 +55,10 @@ class BaseDataset(Dataset):
 # MAE Dataset
 # =====================================================
 class MAE_Dataset(BaseDataset):
-    def __init__(self, df, le_act, le_sp, pooling=True):
+    def __init__(self, df, le_act, le_sp, pooling=True, frame_stride=1):
         super().__init__(df, le_act, le_sp)
         self.pooling = pooling
+        self.frame_stride = frame_stride
 
         # samplesリストを構築（pooling=True/False共通で使用）
         # 形式: (npy_path, action, species, vid)
@@ -76,6 +77,8 @@ class MAE_Dataset(BaseDataset):
                     valid_rows.append(row)
             else:
                 npy_files = sorted((base / "sliding_list").glob("*.npy"))
+                # frame_strideごとにサンプリング（重複フレーム回避）
+                npy_files = npy_files[::frame_stride]
                 if npy_files:
                     valid_rows.append(row)
                     for npy_path in npy_files:
@@ -102,10 +105,11 @@ class MAE_Dataset(BaseDataset):
 # X3D Dataset
 # =====================================================
 class X3D_Dataset(BaseDataset):
-    def __init__(self, df, le_act, le_sp, centered=False, pooling=True):
+    def __init__(self, df, le_act, le_sp, centered=False, pooling=True, frame_stride=1):
         super().__init__(df, le_act, le_sp)
         self.centered = centered
         self.pooling  = pooling
+        self.frame_stride = frame_stride
 
         folder = "x3d_vector_centered" if centered else "x3d_vector"
 
@@ -126,6 +130,8 @@ class X3D_Dataset(BaseDataset):
                     valid_rows.append(row)
             else:
                 npy_files = sorted((base / "sliding_list").glob("*.npy"))
+                # frame_strideごとにサンプリング（重複フレーム回避）
+                npy_files = npy_files[::frame_stride]
                 if npy_files:
                     valid_rows.append(row)
                     for npy_path in npy_files:
@@ -152,10 +158,11 @@ class X3D_Dataset(BaseDataset):
 # GatedFusion Dataset
 # =====================================================
 class X3D_MAE_Dataset(BaseDataset):
-    def __init__(self, df, le_act, le_sp, centered=False, pooling=True):
+    def __init__(self, df, le_act, le_sp, centered=False, pooling=True, frame_stride=1):
         super().__init__(df, le_act, le_sp)
         self.centered = centered
         self.pooling  = pooling
+        self.frame_stride = frame_stride
 
         folder = "x3d_vector_centered" if centered else "x3d_vector"
 
@@ -180,6 +187,9 @@ class X3D_MAE_Dataset(BaseDataset):
             else:
                 x3d_files = sorted((x3d_base / "sliding_list").glob("*.npy"))
                 mae_files = sorted((mae_base / "sliding_list").glob("*.npy"))
+                # frame_strideごとにサンプリング（重複フレーム回避）
+                x3d_files = x3d_files[::frame_stride]
+                mae_files = mae_files[::frame_stride]
 
                 if x3d_files and mae_files:
                     valid_rows.append(row)

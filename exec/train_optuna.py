@@ -128,6 +128,7 @@ def objective(
         "adversarial": yaml_cfg.get("adversarial", "gan"),  # 敵対的学習の有効化（off / gan / kl）
         "flow_preprocessing": yaml_cfg.get("flow_preprocessing", "centered"),  # Optical Flow特徴の前処理（normal / centered）
         "pooling":  bool(yaml_cfg.get("pooling", True)),  # VideoMAE特徴のプーリング使用有無
+        "frame_stride": int(yaml_cfg.get("frame_stride", 1)),  # pooling=False時のフレーム間隔（16=重複なし）
         # =========================
         # 最適化・学習率関連
         # =========================
@@ -173,7 +174,9 @@ def objective(
             + (f"_{config['flow_preprocessing']}" if config.get("train_mode") in ["flow", "gated"] else "")
         )
 
-    project_name = config.get("project_name", "optuna")+f"_run_{next_idx:03d}"
+    from datetime import datetime
+    date_str = datetime.now().strftime("%m%d")  # MMDD形式
+    project_name = config.get("project_name", "optuna") + f"_{date_str}_run{next_idx:03d}"
 
     wandb.init(project=project_name, config=config, name=run_name, reinit=True)
 

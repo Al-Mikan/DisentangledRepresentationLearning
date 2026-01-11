@@ -83,14 +83,13 @@ def get_loss_fn_and_miner(
     
     elif loss_type == "triplet":
         # --- Triplet (そのまま) ---
-        loss_fn = losses.TripletMarginLoss(
-            distance=dist,
-            margin=triplet_margin
+        loss_fn = ImprovedTripletLoss(
+            tau1=triplet_margin,
+            tau2=0.1,
+            beta=0.1,
         )
         miner = miners.TripletMarginMiner(
-            margin=triplet_margin,
-            distance=dist,
-            type_of_triplets="semihard"
+            margin=triplet_margin, type_of_triplets="semihard"
         )
 
     return loss_fn, miner
@@ -197,23 +196,24 @@ def build_datasets_and_loaders(
     pooling  = bool(config.get("pooling", True))
     centered = (config.get("flow_preprocessing", "normal") == "centered")
     train_mode = config.get("train_mode", "gated")
+    frame_stride = int(config.get("frame_stride", 1))  # pooling=False時のフレーム間隔
 
     fusion_model: Optional[nn.Module] = None
 
     if train_mode == "mae":
-        train_dataset = MAE_Dataset(train_df, le_act, le_sp, pooling=pooling)
-        val_dataset   = MAE_Dataset(val_df,   le_act, le_sp, pooling=pooling)
+        train_dataset = MAE_Dataset(train_df, le_act, le_sp, pooling=pooling, frame_stride=frame_stride)
+        val_dataset   = MAE_Dataset(val_df,   le_act, le_sp, pooling=pooling, frame_stride=frame_stride)
 
     elif train_mode == "flow":
         train_dataset = X3D_Dataset(train_df, le_act, le_sp,
-                                    centered=centered, pooling=pooling)
+                                    centered=centered, pooling=pooling, frame_stride=frame_stride)
         val_dataset   = X3D_Dataset(val_df,   le_act, le_sp,
-                                    centered=centered, pooling=pooling)
+                                    centered=centered, pooling=pooling, frame_stride=frame_stride)
     elif train_mode == "gated":
         train_dataset = X3D_MAE_Dataset(train_df, le_act, le_sp,
-                                        centered=centered, pooling=pooling)
+                                        centered=centered, pooling=pooling, frame_stride=frame_stride)
         val_dataset   = X3D_MAE_Dataset(val_df,   le_act, le_sp,
-                                        centered=centered, pooling=pooling)
+                                        centered=centered, pooling=pooling, frame_stride=frame_stride)
 
         # X3D_dim=2048, MAE_dim=768 → config["fused_dim"]
         fusion_model = GatedFusion(2048, 768, config.get("fused_dim", 512)).to(DEVICE)

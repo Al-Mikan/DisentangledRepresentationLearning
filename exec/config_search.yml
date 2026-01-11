@@ -4,7 +4,7 @@ project_name: animalkingdom_aug
 experiment_name: triplet_vs_gan
 output_root: ./train_result
 train_label_paths:
-  [./label/train/animalkingdom.csv, ./label/train/animalkingdom_augmented.csv]
+  [./label/train/animalkingdom.csv]
 test_label_paths: ./label/test/elephant.csv
 
 # === モード設定 ===
@@ -12,7 +12,8 @@ train_mode: [gated] # mae / flow / gated
 loss_type: [msloss] # triplet / msloss
 adversarial: [kl] # dann / kl
 flow_preprocessing: [normal] # normal / centered
-pooling: True
+pooling: False
+frame_stride: 16  # pooling=False時のフレーム間隔（16=重複なし）
 
 # === モデル設定 ===
 fused_dim: 512
