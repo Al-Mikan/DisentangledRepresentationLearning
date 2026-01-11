@@ -52,12 +52,15 @@ def cleanup_memory() -> None:
 def get_loss_fn_and_miner(
     loss_type: str,
     triplet_margin: float = 0.1,
+    ms_alpha: float = 2.0,
+    ms_beta: float = 50.0,
+    ms_base: float = 0.5,
 ):
     miner = None
+    dist = distances.CosineSimilarity()  # 共通で使用
 
     if loss_type == "cosine":
         # --- Triplet (そのまま) ---
-        dist = distances.CosineSimilarity()
         loss_fn = losses.TripletMarginLoss(
             distance=dist,
             margin=triplet_margin
@@ -68,15 +71,27 @@ def get_loss_fn_and_miner(
             type_of_triplets="semihard"
         )
 
-    else:
+    elif loss_type == "msloss":
         # --- Multi-Similarity (公式構成) ---
         loss_fn = MultiSimilarityLoss(
-            alpha=8.0,
-            beta=40.0,
-            base=0.3,
+            alpha=ms_alpha,
+            beta=ms_beta,
+            base=ms_base,
             distance=CosineSimilarity(),
         )
         miner = None
+    
+    elif loss_type == "triplet":
+        # --- Triplet (そのまま) ---
+        loss_fn = losses.TripletMarginLoss(
+            distance=dist,
+            margin=triplet_margin
+        )
+        miner = miners.TripletMarginMiner(
+            margin=triplet_margin,
+            distance=dist,
+            type_of_triplets="semihard"
+        )
 
     return loss_fn, miner
 
@@ -558,7 +573,10 @@ def train_model(
     # -------------------------------
     loss_fn, miner = get_loss_fn_and_miner(
         str(config["loss_type"]),
-        triplet_margin=float(config.get("triplet_margin")),
+        triplet_margin=float(config.get("triplet_margin", 0.1)),
+        ms_alpha=float(config.get("ms_alpha", 2.0)),
+        ms_beta=float(config.get("ms_beta", 50.0)),
+        ms_base=float(config.get("ms_base", 0.5)),
     )
 
     # -------------------------------

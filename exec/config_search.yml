@@ -9,8 +9,8 @@ test_label_paths: ./label/test/elephant.csv
 
 # === モード設定 ===
 train_mode: [gated] # mae / flow / gated
-loss_type: [triplet] #cosine / triplet
-adversarial: [dann] # True: GAN方式 / False: 通常正則化
+loss_type: [msloss] # triplet / msloss
+adversarial: [kl] # dann / kl
 flow_preprocessing: [normal] # normal / centered
 pooling: True
 
@@ -27,6 +27,11 @@ lr_disc: [1e-4]
 batch_size: 256
 disc_steps_per_batch: 1
 weight_decay: 1e-3
+
+# === MultiSimilarityLoss パラメータ ===
+ms_alpha: [1.0, 3.0]   # positive pairsの指数重み (デフォルト: 2.0)
+ms_beta: [40.0, 60.0]  # negative pairsの指数重み (デフォルト: 50.0)
+ms_base: [0.4, 0.6]    # 指数のシフト値 (デフォルト: 0.5)
 
 # === 学習環境 ===
 epochs: 500

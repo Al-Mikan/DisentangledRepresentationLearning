@@ -141,6 +141,9 @@ def objective(
         # 損失関数パラメータ
         # =========================
         "triplet_margin": float(yaml_cfg.get("triplet_margin", 0.1)),  # Triplet Loss のマージン値
+        "ms_alpha": float(yaml_cfg.get("ms_alpha", 2.0)),  # MultiSimilarityLoss: positive pairsの指数重み
+        "ms_beta": float(yaml_cfg.get("ms_beta", 50.0)),   # MultiSimilarityLoss: negative pairsの指数重み
+        "ms_base": float(yaml_cfg.get("ms_base", 0.5)),    # MultiSimilarityLoss: 指数のシフト値
 
         # =========================
         # バッチ・エポックなどの学習制御
