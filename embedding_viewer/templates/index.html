@@ -123,7 +123,7 @@
 
   <header>
     <h1>Embedding Viewer</h1>
-    <!-- Date / Run Selection -->
+    <!-- Date / Run / Test Set Selection -->
     <div style="display:flex; gap:10px;">
       <form method="get" action="/" style="display:flex; gap:10px; align-items:center; margin:0;">
         <select name="date" onchange="this.form.submit()" style="width:150px; margin:0;">
@@ -138,6 +138,15 @@
           <option value="">Select Run</option>
           {% for r in runs %}
             <option value="{{r}}" {% if r == selected_run %}selected{% endif %}>{{r}}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+        
+        {% if selected_run and test_sets %}
+        <select name="test_set" onchange="this.form.submit()" style="width:200px; margin:0;">
+          <option value="">Select Test Set</option>
+          {% for ts in test_sets %}
+            <option value="{{ts}}" {% if ts == selected_test_set %}selected{% endif %}>{{ts}}</option>
           {% endfor %}
         </select>
         {% endif %}

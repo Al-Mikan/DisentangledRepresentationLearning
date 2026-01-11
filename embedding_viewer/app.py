@@ -91,23 +91,7 @@ def serve_video(filepath):
     動画ファイルを配信するエンドポイント
     セキュリティ: 本来はディレクトリトラバーサル対策が必要だが研究用なので簡易実装
     """
-    # filepathが絶対パスの場合、ルートディレクトリからの相対にならずそのまま渡されることが多い
-    # systemのルートからのパスとして処理
-    
-    # セキュリティ簡易チェック: 指定ディレクトリ以下のみ許可する場合
-    # target = (VIDEO_ROOT / filepath).resolve()
-    # if not str(target).startswith(str(VIDEO_ROOT)):
-    #     return "Access denied", 403
 
-    # 今回は絶対パスで来ることを想定してそのまま開く
-    # ただしブラウザは 'Range' リクエストを送ってくることがあるので
-    # 本格的には Range 対応が必要だが、Flask開発鯖なら send_file で概ね動く
-    
-    # 絶対パスとして扱うために "/" を先頭につける処理が必要な場合もあるが
-    # path converter はスラッシュを含む文字列をそのまま渡す
-    
-    # Mac/Linux絶対パス対策: 先頭に / があると os.path.join 等で無視される挙動を利用するか
-    # または filepath 自体が絶対パス文字列として渡るか確認。
     
     p = Path("/" + filepath) if not filepath.startswith("/") else Path(filepath)
     
@@ -134,8 +118,14 @@ def index():
 
     selected_date = request.args.get("date")
     selected_run = request.args.get("run")
+    selected_test_set = request.args.get("test_set")
 
     runs = []
+    test_sets = []
+    model_names = []
+    train_labels = []
+    test_labels = []
+
     if selected_date:
         date_dir = TRAIN_RESULT_ROOT / selected_date
         if date_dir.exists():
@@ -144,22 +134,37 @@ def index():
                 if p.is_dir() and p.name.startswith("run_")
             )
 
-    # テンプレート側でJinja2変数を展開してJSに渡すため、初期値設定
+    if selected_date and selected_run:
+        eval_root = TRAIN_RESULT_ROOT / selected_date / selected_run / "eval"
+        if eval_root.exists():
+            test_sets = sorted(d.name for d in eval_root.iterdir() if d.is_dir())
+
+    if selected_date and selected_run and selected_test_set:
+        current_eval_dir = TRAIN_RESULT_ROOT / selected_date / selected_run / "eval" / selected_test_set / "jsonl"
+        if not current_eval_dir.exists():
+            # フォールバック: eval直下にjsonlがある場合
+            current_eval_dir = TRAIN_RESULT_ROOT / selected_date / selected_run / "eval"
+        
+        if current_eval_dir.exists():
+            train_labels = load_label_set(current_eval_dir, "train")
+            test_labels = load_label_set(current_eval_dir, "test")
+            model_names = sorted({
+                p.stem.replace("_train", "").replace("_test", "")
+                for p in current_eval_dir.glob("*.jsonl")
+            })
+
     return render_template(
         "index.html",
         dates=dates,
         runs=runs,
+        test_sets=test_sets,
         selected_date=selected_date,
         selected_run=selected_run,
+        selected_test_set=selected_test_set,
         
-        # 以下のリストは Read ボタン押下後に JS (Ajax) で取得または
-        # ページロード時に埋め込む形にするが、
-        # 今回はシンプルに「Read」でページリロード -> データを埋め込む、の流れを踏襲しつつ
-        # Plot は Ajax に切り替えるハイブリッド構成にする
-        
-        model_names=[],
-        train_labels=[],
-        test_labels=[],
+        model_names=model_names,
+        train_labels=train_labels,
+        test_labels=test_labels,
         
         # 初期パラメータ
         perplexity=30,

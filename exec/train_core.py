@@ -678,9 +678,9 @@ def train_model(
         )
 
         log_dict = {
-            "valid/metric_loss": val_metrics["metric_loss"],
-            "valid/action_ce":   val_metrics["action_ce"],
-            "valid/action_acc":  val_metrics["action_acc"],
+            "valid/triplet_loss": val_metrics["metric_loss"],
+            "valid/action_ce/loss":   val_metrics["action_ce"],
+            "valid/action_ce/acc":  val_metrics["action_acc"],
             "valid/total_loss":  val_metrics["total_loss"],
         }
 
@@ -735,7 +735,7 @@ def train_model(
                 df_var,
                 epoch=epoch + 1,
                 trial_number=trial.number,
-                prefix="valid",
+                prefix="valid_table",
             )
         else:
             no_improve += 1
