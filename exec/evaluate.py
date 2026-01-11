@@ -24,6 +24,9 @@ from model import (
     GatedFusion,  ActionMLPNet,
 )
 
+# train_coreから距離計算関数をimport
+from train_core import compute_distance_stats_epoch
+
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"✅ Using device: {DEVICE}")
 
@@ -383,16 +386,36 @@ def main(run_dir: Path):
                         df_test, lab_test, src_test, e_test)
 
                 # Metrics
-                ari, nmi, sil = evaluate_metrics(emb, lab, src, le_act, mp.stem, eval_root)
+                # compute_distance_stats_epoch は train_core から import するか、ここに対応
+                # ここでは直接呼び出して計算する形にする
+                # lab (numpy) -> tensor
+                lab_tensor = torch.tensor(lab_test, dtype=torch.long)
+                emb_tensor = e_test # 既にTensor (cpu)
 
-                results.append({
+                stats = compute_distance_stats_epoch(emb_tensor, lab_tensor)
+                
+                # ARI, NMI も計算
+                ari, nmi, _ = evaluate_metrics(emb, lab, src, le_act, mp.stem, eval_root)
+
+                res_dict = {
                     "name": mp.stem,
                     "train_mode": p.get("train_mode"),
                     "pooling": POOLING,
                     "ari": ari,
                     "nmi": nmi,
-                    "silhouette": sil,
-                })
+                }
+                # stats の内容をマージ (intra_mean, intra_var, inter_mean, inter_var, silhouette)
+                if stats:
+                    res_dict.update(stats)
+                else:
+                    # 計算できなかった場合（クラス不足など）
+                    res_dict.update({
+                        "intra_mean": 0, "intra_var": 0,
+                        "inter_mean": 0, "inter_var": 0,
+                        "silhouette": 0
+                    })
+
+                results.append(res_dict)
 
         # CSV 出力
         if results:
@@ -402,13 +425,21 @@ def main(run_dir: Path):
             md_path = eval_root / "eval_summary.md"
             with open(md_path, "w", encoding="utf-8") as f:
                 f.write(f"# Evaluation Summary ({test_stem})\n\n")
-                f.write("| Model | Train Mode | Pooling | ARI | NMI | Silhouette |\n")
-                f.write("|-------|------------|---------|-----|-----|------------|\n")
+                # ヘッダー作成
+                headers = ["Model", "Train Mode", "Pooling", "ARI", "NMI", "Silhouette", 
+                           "Intra Mean", "Intra Var", "Inter Mean", "Inter Var"]
+                f.write("| " + " | ".join(headers) + " |\n")
+                f.write("|" + "|".join(["---"] * len(headers)) + "|\n")
+                
                 for r in results:
-                    f.write(
-                        f"| {r['name']} | {r['train_mode']} | "
-                        f"{r['pooling']} | {r['ari']:.4f} | {r['nmi']:.4f} | {r['silhouette']:.4f} |\n"
-                    )
+                    row_vals = [
+                        r['name'], r['train_mode'], str(r['pooling']),
+                        f"{r['ari']:.4f}", f"{r['nmi']:.4f}", 
+                        f"{r.get('silhouette', 0):.4f}",
+                        f"{r.get('intra_mean', 0):.4f}", f"{r.get('intra_var', 0):.4f}",
+                        f"{r.get('inter_mean', 0):.4f}", f"{r.get('inter_var', 0):.4f}"
+                    ]
+                    f.write("| " + " | ".join(row_vals) + " |\n")
 
             print(f"✅ Saved results for {test_stem} to {eval_root}")
 

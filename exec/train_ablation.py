@@ -156,6 +156,7 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
                     le_act,
                     le_sp,
                     results_root=ablation_dir,
+                    next_idx=idx,             
                     search_space=None,        # 探索しない
                     fixed_config=local_config # 完全固定
                 )

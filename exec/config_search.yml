@@ -10,7 +10,7 @@ test_label_paths: ./label/test/elephant.csv
 # === モード設定 ===
 train_mode: [gated] # mae / flow / gated
 loss_type: [msloss] # triplet / msloss
-adversarial: [kl] # dann / kl
+adversarial: [dann] # dann / kl
 flow_preprocessing: [normal] # normal / centered
 pooling: False
 frame_stride: 16  # pooling=False時のフレーム間隔（16=重複なし）
@@ -19,20 +19,24 @@ frame_stride: 16  # pooling=False時のフレーム間隔（16=重複なし）
 fused_dim: 512
 feature_dim: 256
 
-# === ハイパーパラメータ探索 ===
-triplet_margin: 0.3
-lambda_adv: [0.01, 0.05]
-lambda_cls: 3.0
-lr_enc: [1e-4]
-lr_disc: [1e-4]
-batch_size: 256
-disc_steps_per_batch: 1
-weight_decay: 1e-3
+# === ハイパーパラメータ探索範囲 ===
+# Learning Rate: 発散を防ぐため少し小さめから探索
+lr_enc: [1.0e-5, 5.0e-5, 1.0e-4, 3.0e-4]
+  
+# Action Classification Weight
+lambda_cls: [0.1, 0.5, 1.0]
+  
+# Adversarial Weight (DANN)
+# 固定値で入るので、初期は小さめが良い (0.1以上は不安定になりがち)
+lambda_adv: [0.01, 0.05, 0.1, 0.2]
+  
+# Batch Size
+batch_size: [256]
 
 # === MultiSimilarityLoss パラメータ ===
 ms_alpha: [1.0, 3.0]   # positive pairsの指数重み (デフォルト: 2.0)
 ms_beta: [40.0, 60.0]  # negative pairsの指数重み (デフォルト: 50.0)
-ms_base: [0.4, 0.6]    # 指数のシフト値 (デフォルト: 0.5)
+ms_base: [0.5]    # 指数のシフト値 (デフォルト: 0.5)
 
 # === 学習環境 ===
 epochs: 500

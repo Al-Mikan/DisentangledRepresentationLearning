@@ -3,181 +3,359 @@
 <head>
   <meta charset="utf-8">
   <title>Embedding Viewer</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
-  <script>
-    function toggleParams() {
-      const method = document.querySelector('select[name="method"]').value;
-      document.getElementById("tsne-params").style.display =
-        (method === "tsne") ? "block" : "none";
-      document.getElementById("umap-params").style.display =
-        (method === "umap") ? "block" : "none";
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: #121212;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
-    window.onload = toggleParams;
-  </script>
+    
+    header {
+      padding: 10px 20px;
+      background-color: #1e1e1e;
+      border-bottom: 1px solid #333;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    h1 { font-size: 1.2rem; margin: 0; }
+    
+    .container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    
+    /* 左パネル：設定 */
+    .sidebar {
+      width: 300px;
+      background-color: #1e1e1e;
+      padding: 20px;
+      overflow-y: auto;
+      border-right: 1px solid #333;
+    }
+    
+    /* 中央パネル：Plotly */
+    .plot-area {
+      flex: 1;
+      position: relative;
+    }
+    #myDiv { width: 100%; height: 100%; }
+    
+    /* 右パネル：動画 & 詳細 */
+    .info-panel {
+      width: 400px;
+      background-color: #1e1e1e;
+      border-left: 1px solid #333;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .video-container {
+      width: 100%;
+      background: #000;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    video { width: 100%; display: block; }
+    
+    .info-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .info-table th { text-align: left; color: #888; padding: 4px 0; width: 80px; }
+    .info-table td { padding: 4px 0; word-break: break-all; }
+    
+    /* フォーム要素 */
+    select, input[type="number"], input[type="text"] {
+      background: #333;
+      color: #fff;
+      border: 1px solid #444;
+      padding: 4px 8px;
+      border-radius: 4px;
+      width: 100%;
+      box-sizing: border-box;
+      margin-bottom: 10px;
+    }
+    button {
+      background: #4caf50;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      width: 100%;
+      font-weight: bold;
+    }
+    button:hover { background: #45a049; }
+    
+    .checkbox-group {
+      max-height: 150px;
+      overflow-y: auto;
+      background: #252525;
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+    .checkbox-line { display: block; font-size: 0.85rem; margin-bottom: 4px; }
+    
+    hr { border-color: #333; margin: 20px 0; }
+    label { font-size: 0.85rem; color: #aaa; display: block; margin-bottom: 4px; }
+    
+    .metrics-box {
+      background: #252525;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+      font-size: 0.9rem;
+    }
+  </style>
 </head>
 
 <body>
-<h1>Embedding Viewer</h1>
 
-<!-- ============================= -->
-<!-- date / run 選択（GET） -->
-<!-- ============================= -->
-<form method="get" action="/">
-  <label>Date</label>
-  <select name="date" onchange="this.form.submit()">
-    <option value="">---</option>
-    {% for d in dates %}
-      <option value="{{d}}" {% if d == selected_date %}selected{% endif %}>
-        {{d}}
-      </option>
-    {% endfor %}
-  </select>
-</form>
+  <header>
+    <h1>Embedding Viewer</h1>
+    <!-- Date / Run Selection -->
+    <div style="display:flex; gap:10px;">
+      <form method="get" action="/" style="display:flex; gap:10px; align-items:center; margin:0;">
+        <select name="date" onchange="this.form.submit()" style="width:150px; margin:0;">
+          <option value="">Select Date</option>
+          {% for d in dates %}
+            <option value="{{d}}" {% if d == selected_date %}selected{% endif %}>{{d}}</option>
+          {% endfor %}
+        </select>
+        
+        {% if selected_date %}
+        <select name="run" onchange="this.form.submit()" style="width:200px; margin:0;">
+          <option value="">Select Run</option>
+          {% for r in runs %}
+            <option value="{{r}}" {% if r == selected_run %}selected{% endif %}>{{r}}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+      </form>
+    </div>
+  </header>
 
-{% if selected_date %}
-<form method="get" action="/" style="margin-top:8px;">
-  <input type="hidden" name="date" value="{{selected_date}}">
-  <label>Run</label>
-  <select name="run" onchange="this.form.submit()">
-    <option value="">---</option>
-    {% for r in runs %}
-      <option value="{{r}}" {% if r == selected_run %}selected{% endif %}>
-        {{r}}
-      </option>
-    {% endfor %}
-  </select>
-</form>
-{% endif %}
+  <div class="container">
+    
+    <!-- Sidebar -->
+    <div class="sidebar">
+      {% if selected_date and selected_run %}
+        <!-- Read Params Form -->
+        <form method="post" action="/read">
+          <input type="hidden" name="date" value="{{selected_date}}">
+          <input type="hidden" name="run" value="{{selected_run}}">
+          
+          <label>Test Set</label>
+          <select name="test_set">
+            {% for ts in test_sets %}
+            <option value="{{ts}}" {% if ts == selected_test_set %}selected{% endif %}>{{ts}}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" style="background:#2196F3;">Reload Labels</button>
+        </form>
 
-<!-- ============================= -->
-<!-- Read ボタン（POST） -->
-<!-- ============================= -->
-{% if selected_date and selected_run %}
-<form method="post" action="/read" style="margin-top:12px;">
-  <input type="hidden" name="date" value="{{selected_date}}">
-  <input type="hidden" name="run" value="{{selected_run}}">
-  <button type="submit">Read</button>
-</form>
-{% endif %}
+        <hr>
 
-<!-- ============================= -->
-<!-- ラベル & 描画設定 -->
-<!-- ============================= -->
-{% if train_labels %}
-<hr>
+        <!-- Plot Params Form -->
+        <form id="plot-form">
+          <input type="hidden" name="date" value="{{selected_date}}">
+          <input type="hidden" name="run" value="{{selected_run}}">
+          <input type="hidden" name="test_set" value="{{selected_test_set}}">
+          
+          <label>Model</label>
+          <select name="model">
+            {% for m in model_names %}
+              <option value="{{m}}">{{m}}</option>
+            {% endfor %}
+          </select>
 
-<form method="post" action="/plot">
-<input type="hidden" name="date" value="{{selected_date}}">
-<input type="hidden" name="run" value="{{selected_run}}">
+          <label>View Mode</label>
+          <select name="view_mode">
+            <option value="all">Train + Test</option>
+            <option value="test">Test Only</option>
+            <option value="train">Train Only</option>
+          </select>
 
-<h3>Train labels</h3>
-{% for lab in train_labels %}
-  <label class="checkbox-line">
-    <input type="checkbox" name="train_labels" value="{{lab}}"
-      {% if lab in selected_train_labels %}checked{% endif %}>
-    {{lab}}
-  </label><br>
-{% endfor %}
+          <label>Algorithm</label>
+          <select name="method" id="method-select" onchange="toggleParams()">
+            <option value="tsne">t-SNE</option>
+            <option value="umap">UMAP</option>
+          </select>
 
-<h3>Test labels</h3>
-{% for lab in test_labels %}
-  <label class="checkbox-line">
-    <input type="checkbox" name="test_labels" value="{{lab}}"
-      {% if lab in selected_test_labels %}checked{% endif %}>
-    {{lab}}
-  </label><br>
-{% endfor %}
+          <!-- t-SNE Params -->
+          <div id="tsne-params">
+            <label>Perplexity</label>
+            <input type="number" name="perplexity" value="30">
+          </div>
 
-<hr>
+          <!-- UMAP Params -->
+          <div id="umap-params" style="display:none;">
+            <label>n_neighbors</label>
+            <input type="number" name="n_neighbors" value="15">
+            <label>min_dist</label>
+            <input type="number" step="0.01" name="min_dist" value="0.1">
+          </div>
+          
+          <div style="margin-top:10px;">
+            <label>Train Labels</label>
+            <div class="checkbox-group">
+              {% for lab in train_labels %}
+              <label class="checkbox-line">
+                <input type="checkbox" name="train_labels" value="{{lab}}"> {{lab}}
+              </label>
+              {% endfor %}
+            </div>
+            <button type="button" onclick="selectAll('train_labels')" style="width:auto; padding:4px 8px; font-size:0.8rem; background:#555;">All</button>
+            
+            <label style="margin-top:10px;">Test Labels</label>
+            <div class="checkbox-group">
+              {% for lab in test_labels %}
+              <label class="checkbox-line">
+                <input type="checkbox" name="test_labels" value="{{lab}}" checked> {{lab}}
+              </label>
+              {% endfor %}
+            </div>
+            <button type="button" onclick="selectAll('test_labels')" style="width:auto; padding:4px 8px; font-size:0.8rem; background:#555;">All</button>
+          </div>
 
-<label>Model</label>
-<select name="model">
-  {% for m in model_names %}
-    <option value="{{m}}">{{m}}</option>
-  {% endfor %}
-</select>
+          <hr>
+          <button type="submit">Plot</button>
+        </form>
+        
+        <div id="metrics-area" class="metrics-box" style="display:none;">
+          <div>ARI: <span id="val-ari">-</span></div>
+          <div>NMI: <span id="val-nmi">-</span></div>
+        </div>
 
-<label>View mode</label>
-<select name="view_mode">
-  <option value="all" {% if view_mode == "all" %}selected{% endif %}>train + test</option>
-  <option value="train" {% if view_mode == "train" %}selected{% endif %}>train only</option>
-  <option value="test" {% if view_mode == "test" %}selected{% endif %}>test only</option>
-</select>
+      {% else %}
+        <p style="color:#888;">Select Date & Run first.</p>
+      {% endif %}
+    </div>
 
-<label>Method</label>
-<select name="method" onchange="toggleParams()">
-  <option value="tsne" {% if method == "tsne" %}selected{% endif %}>t-SNE</option>
-  <option value="umap" {% if method == "umap" %}selected{% endif %}>UMAP</option>
-</select>
+    <!-- Plot Area -->
+    <div class="plot-area">
+      <div id="myDiv"></div>
+      <div id="loading" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:white;">
+        Generating Plot...
+      </div>
+    </div>
 
-<hr>
+    <!-- Info Panel -->
+    <div class="info-panel">
+      <h3>Selected Point</h3>
+      
+      <div class="video-container">
+        <video id="video-player" controls autoplay muted>
+          <source src="" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      
+      <table class="info-table">
+        <tr><th>Path</th><td id="info-path">-</td></tr>
+        <tr><th>Label</th><td id="info-label">-</td></tr>
+        <tr><th>Source</th><td id="info-source">-</td></tr>
+      </table>
+      
+      <p style="color:#888; font-size:0.8rem; margin-top:20px;">
+        Click on a point in the scatter plot to play the corresponding video.
+      </p>
+    </div>
 
-<!-- ============================= -->
-<!-- t-SNE params -->
-<!-- ============================= -->
-<div id="tsne-params">
-  <h4>t-SNE parameters</h4>
+  </div>
 
-  <label>Perplexity</label>
-  <input type="number" name="perplexity" value="{{ perplexity or 30 }}">
+  <script>
+    function toggleParams() {
+      const method = document.getElementById('method-select').value;
+      document.getElementById("tsne-params").style.display = (method === "tsne") ? "block" : "none";
+      document.getElementById("umap-params").style.display = (method === "umap") ? "block" : "none";
+    }
 
-  <label>Learning rate</label>
-  <input type="number" name="learning_rate" value="{{ learning_rate or 200 }}">
+    function selectAll(name) {
+      const checkboxes = document.querySelectorAll(`input[name="${name}"]`);
+      checkboxes.forEach(cb => cb.checked = true);
+    }
 
-  <label>Early exaggeration</label>
-  <input type="number" name="early_exaggeration" value="{{ early_exaggeration or 12 }}">
-
-  <label>Init</label>
-  <select name="init">
-    <option value="pca" {% if init == "pca" %}selected{% endif %}>pca</option>
-    <option value="random" {% if init == "random" %}selected{% endif %}>random</option>
-  </select>
-
-  <label>Angle</label>
-  <input type="number" step="0.05" name="angle" value="{{ angle or 0.5 }}">
-</div>
-
-<!-- ============================= -->
-<!-- UMAP params -->
-<!-- ============================= -->
-<div id="umap-params">
-  <h4>UMAP parameters</h4>
-
-  <label>n_neighbors</label>
-  <input type="number" name="n_neighbors" value="{{ n_neighbors or 15 }}">
-
-  <label>min_dist</label>
-  <input type="number" step="0.01" name="min_dist" value="{{ min_dist or 0.1 }}">
-</div>
-
-<hr>
-
-<label>
-  <input type="checkbox" name="show_labels" {% if show_labels %}checked{% endif %}>
-  Show legend
-</label>
-
-<label>
-  <input type="checkbox" name="use_title" {% if use_title %}checked{% endif %}>
-  Title
-</label>
-<input name="title" value="{{title}}">
-
-<button type="submit">Draw</button>
-</form>
-{% endif %}
-
-<!-- ============================= -->
-<!-- 結果表示 -->
-<!-- ============================= -->
-{% if image_data %}
-<hr>
-<img src="data:image/png;base64,{{image_data}}">
-<pre>{{summary}}</pre>
-<b>ARI:</b> {{ari}}　
-<b>NMI:</b> {{nmi}}
-{% endif %}
+    document.getElementById('plot-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      
+      const formData = new FormData(this);
+      const jsonData = {};
+      formData.forEach((value, key) => {
+        // checkbox array handling
+        if (key === 'train_labels' || key === 'test_labels') {
+            if (!jsonData[key]) jsonData[key] = [];
+            jsonData[key].push(value);
+        } else {
+            jsonData[key] = value;
+        }
+      });
+      
+      // show loading
+      document.getElementById('loading').style.display = 'block';
+      
+      fetch('/api/plot_data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(jsonData)
+      })
+      .then(response => response.json())
+      .then(data => {
+        document.getElementById('loading').style.display = 'none';
+        
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        
+        Plotly.newPlot('myDiv', data.traces, data.layout, {responsive: true});
+        
+        // Update Metrics
+        document.getElementById('metrics-area').style.display = 'block';
+        document.getElementById('val-ari').textContent = data.metrics.ari;
+        document.getElementById('val-nmi').textContent = data.metrics.nmi;
+        
+        // Click Event
+        document.getElementById('myDiv').on('plotly_click', function(data){
+            if(data.points.length > 0){
+                const pt = data.points[0];
+                const customData = pt.customdata; // video path
+                const label = pt.data.name; 
+                
+                // video path might be absolute
+                // convert to /video/path/to/file.mp4
+                // customData is absolute path e.g. /home/user/... or C:\...
+                // encodeURI for safety
+                
+                const videoUrl = '/video/' + customData;
+                
+                const player = document.getElementById('video-player');
+                player.src = videoUrl;
+                player.play();
+                
+                document.getElementById('info-path').textContent = customData;
+                document.getElementById('info-label').textContent = label;
+                document.getElementById('info-source').textContent = pt.data.name.includes("train") ? "Train" : "Test";
+            }
+        });
+      })
+      .catch(err => {
+        document.getElementById('loading').style.display = 'none';
+        alert('Error: ' + err);
+        console.error(err);
+      });
+    });
+  </script>
 
 </body>
 </html>

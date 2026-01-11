@@ -682,6 +682,7 @@ def train_model(
             "valid/action_ce":   val_metrics["action_ce"],
             "valid/action_acc":  val_metrics["action_acc"],
             "valid/total_loss":  val_metrics["total_loss"],
+            "valid/silhouette":   val_metrics["silhouette"],
         }
 
         if dist_stats is not None:
@@ -693,6 +694,7 @@ def train_model(
                 "valid/separation_ratio": (
                     dist_stats["inter_mean"] / (dist_stats["intra_mean"] + 1e-8)
                 ),
+                "valid/silhouette":   val_metrics["silhouette"],
             })
 
         for k, v in epoch_metrics.items():
@@ -978,7 +980,7 @@ def log_classwise_tables_once_per_trial(
     df_var,
     epoch: int,
     trial_number: int,
-    prefix: str = "valid",
+    prefix: str = "valid_table",
 ):
     # ===== Table =====
     wandb.log({

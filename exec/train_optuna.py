@@ -178,7 +178,7 @@ def objective(
     date_str = datetime.now().strftime("%m%d")  # MMDD形式
     project_name = config.get("project_name", "optuna") + f"_{date_str}_run{next_idx:03d}"
 
-    wandb.init(project=project_name, config=config, name=run_name, reinit=True)
+    wandb.init(project=project_name, config=config, name=run_name, reinit=True, save_code=True)
 
     trial.set_user_attr("train_mode", config["train_mode"])
     trial.set_user_attr("adversarial", config["adversarial"])

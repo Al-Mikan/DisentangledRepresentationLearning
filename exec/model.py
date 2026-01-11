@@ -39,12 +39,8 @@ class ActionMLPNet(nn.Module):
         self.act_embed = nn.Sequential(
             nn.Linear(input_dim, hidden_dim, bias=True),
             nn.LayerNorm(hidden_dim),  # 学習安定化のため追加
-            
-            # ReLU の代わりに LeakyReLU を採用 (傾き0.1)
             nn.LeakyReLU(0.1),
-            
             nn.Dropout(p_drop),
-            
             nn.Linear(hidden_dim, feature_dim, bias=True),
         )
         self._init_weights()
@@ -106,6 +102,11 @@ class SpeciesDiscriminator(nn.Module):
 class GatedFusion(nn.Module):
     def __init__(self, d_x3d=2048, d_vmae=768, d_hidden=512):
         super().__init__()
+        
+        # 入力正規化 (Pre-Norm)
+        self.in_ln_x3d  = nn.LayerNorm(d_x3d)
+        self.in_ln_vmae = nn.LayerNorm(d_vmae)
+        
         self.x3d_fc  = nn.Linear(d_x3d, d_hidden, bias=False)
         self.vmae_fc = nn.Linear(d_vmae, d_hidden, bias=False)
         self.x3d_ln  = nn.LayerNorm(d_hidden)
@@ -117,8 +118,12 @@ class GatedFusion(nn.Module):
         self._init_weights()
 
     def forward(self, x3d, vmae):
-        x3d_proj  = self.x3d_ln(self.x3d_fc(x3d))
-        vmae_proj = self.vmae_ln(self.vmae_fc(vmae))
+        # 入力を正規化
+        x3d  = self.in_ln_x3d(x3d)
+        vmae = self.in_ln_vmae(vmae)
+        
+        x3d_proj  = self.x3d_fc(x3d)
+        vmae_proj = self.vmae_fc(vmae)
 
         concat = torch.cat([x3d_proj, vmae_proj], dim=-1)
         alpha = self.gate(concat)

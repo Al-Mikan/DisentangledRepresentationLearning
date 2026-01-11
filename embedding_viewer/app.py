@@ -4,9 +4,8 @@ import json
 import base64
 from pathlib import Path
 
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, jsonify, send_file, Response
 import numpy as np
-import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
@@ -20,22 +19,30 @@ app = Flask(__name__)
 TRAIN_RESULT_ROOT = Path(
     "/home/asel/Documents/labo/DisentangledRepresentationLearning/train_result"
 )
+VIDEO_ROOT = Path("/home/asel/Documents/labo/DisentangledRepresentationLearning") # 動画ルート
 
 # ======================================================
 # JSONL loader
 # ======================================================
 def load_embeddings(path: Path):
-    vecs, labels, sources = [], [], []
+    vecs, labels, sources, video_paths = [], [], [], []
     with open(path, "r") as f:
         for line in f:
             o = json.loads(line)
             vecs.append(o["vector"])
             labels.append(o["label"])
             sources.append(o.get("source", "unknown"))
+            # videopath取得 (絶対パス or 相対パス)
+            vp = o.get("videopath", "")
+            # windowsパス区切り対応などはここで行う
+            vp = vp.replace("\\", "/")
+            video_paths.append(vp)
+            
     return (
         np.asarray(vecs, np.float32),
         np.asarray(labels),
         np.asarray(sources),
+        np.asarray(video_paths),
     )
 
 # ======================================================
@@ -43,10 +50,16 @@ def load_embeddings(path: Path):
 # ======================================================
 def load_label_set(eval_dir: Path, split: str):
     labels = set()
-    for p in eval_dir.glob(f"*_{split}.jsonl"):
-        with open(p, "r") as f:
-            for line in f:
-                labels.add(json.loads(line)["label"])
+    # test.jsonl あるいは train.jsonl を探す
+    for p in eval_dir.glob("*.jsonl"): 
+        # ファイル名末尾判定: {model}_train.jsonl / {model}_test.jsonl
+        if p.stem.endswith(f"_{split}"):
+            with open(p, "r") as f:
+                for line in f:
+                    try:
+                        labels.add(json.loads(line)["label"])
+                    except:
+                        pass
     return sorted(labels)
 
 # ======================================================
@@ -57,6 +70,7 @@ def compute_ari_nmi(X, labels):
     if n_clusters <= 1:
         return None, None
 
+    # 高速化のため最大サンプル数制限などを入れても良いが今はそのまま
     pred = AgglomerativeClustering(
         n_clusters=n_clusters,
         metric="cosine",
@@ -69,57 +83,53 @@ def compute_ari_nmi(X, labels):
     )
 
 # ======================================================
-# Plot（同一ラベル同色、train/testはmarker）
+# 動画配信設定
 # ======================================================
-def plot_embedding(X2d, labels, sources, title, show_labels):
-    plt.figure(figsize=(8, 8))
-    if title:
-        plt.title(title, fontsize=16)
+@app.route("/video/<path:filepath>")
+def serve_video(filepath):
+    """
+    動画ファイルを配信するエンドポイント
+    セキュリティ: 本来はディレクトリトラバーサル対策が必要だが研究用なので簡易実装
+    """
+    # filepathが絶対パスの場合、ルートディレクトリからの相対にならずそのまま渡されることが多い
+    # systemのルートからのパスとして処理
+    
+    # セキュリティ簡易チェック: 指定ディレクトリ以下のみ許可する場合
+    # target = (VIDEO_ROOT / filepath).resolve()
+    # if not str(target).startswith(str(VIDEO_ROOT)):
+    #     return "Access denied", 403
 
-    uniq_labels = np.unique(labels)
-    cmap = plt.get_cmap("tab20")
-    color_map = {lab: cmap(i % 20) for i, lab in enumerate(uniq_labels)}
+    # 今回は絶対パスで来ることを想定してそのまま開く
+    # ただしブラウザは 'Range' リクエストを送ってくることがあるので
+    # 本格的には Range 対応が必要だが、Flask開発鯖なら send_file で概ね動く
+    
+    # 絶対パスとして扱うために "/" を先頭につける処理が必要な場合もあるが
+    # path converter はスラッシュを含む文字列をそのまま渡す
+    
+    # Mac/Linux絶対パス対策: 先頭に / があると os.path.join 等で無視される挙動を利用するか
+    # または filepath 自体が絶対パス文字列として渡るか確認。
+    
+    p = Path("/" + filepath) if not filepath.startswith("/") else Path(filepath)
+    
+    if not p.exists():
+        # 相対パスかもしれないので VIDEO_ROOT 加味
+        p2 = VIDEO_ROOT / filepath
+        if p2.exists():
+            p = p2
+        else:
+            return f"Video not found: {p}", 404
 
-    for lab in uniq_labels:
-        color = color_map[lab]
-        mask = labels == lab
-        m_train = mask & (sources == "train")
-        m_test = mask & (sources == "test")
+    return send_file(p, mimetype="video/mp4")
 
-        if np.any(m_train):
-            plt.scatter(
-                X2d[m_train, 0], X2d[m_train, 1],
-                color=color, marker="o", s=20, alpha=0.8,
-                label=(f"{lab} (train)" if show_labels else None),
-            )
-        if np.any(m_test):
-            plt.scatter(
-                X2d[m_test, 0], X2d[m_test, 1],
-                c=[color],                 # 塗りつぶしはラベル色
-                marker="^",
-                s=35,
-                alpha=0.9,
-                edgecolors="gray",    # 枠線を薄いグレーに
-                linewidths=1.2,            # 枠線の太さ
-                label=(f"{lab} (test)" if show_labels else None),
-            )
-
-
-    if show_labels:
-        plt.legend(fontsize=8, bbox_to_anchor=(1.02, 0.5), loc="center left")
-
-    plt.xticks([]); plt.yticks([])
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-    plt.close()
-    return base64.b64encode(buf.getvalue()).decode()
 
 # ======================================================
 # /
 # ======================================================
 @app.route("/", methods=["GET"])
 def index():
+    if not TRAIN_RESULT_ROOT.exists():
+        return f"Error: TRAIN_RESULT_ROOT not found: {TRAIN_RESULT_ROOT}"
+
     dates = sorted(p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir())
 
     selected_date = request.args.get("date")
@@ -134,58 +144,77 @@ def index():
                 if p.is_dir() and p.name.startswith("run_")
             )
 
+    # テンプレート側でJinja2変数を展開してJSに渡すため、初期値設定
     return render_template(
         "index.html",
         dates=dates,
         runs=runs,
         selected_date=selected_date,
         selected_run=selected_run,
-
+        
+        # 以下のリストは Read ボタン押下後に JS (Ajax) で取得または
+        # ページロード時に埋め込む形にするが、
+        # 今回はシンプルに「Read」でページリロード -> データを埋め込む、の流れを踏襲しつつ
+        # Plot は Ajax に切り替えるハイブリッド構成にする
+        
         model_names=[],
         train_labels=[],
         test_labels=[],
-        selected_train_labels=[],
-        selected_test_labels=[],
-
-        # 以下は初期値
-        view_mode="all",
-        method="tsne",
+        
+        # 初期パラメータ
         perplexity=30,
         learning_rate=200,
         early_exaggeration=12,
-        init="pca",
-        angle=0.5,
         n_neighbors=15,
         min_dist=0.1,
-        use_title=False,
-        title="",
-        show_labels=True,
-        image_data=None,
-        summary=None,
-        ari=None,
-        nmi=None,
-        png_filename="embedding.png",
     )
 
 
 # ======================================================
-# /read
+# /read : ラベル情報とモデル一覧を取得してページを再描画
 # ======================================================
 @app.route("/read", methods=["POST"])
 def read_labels():
     date = request.form["date"]
     run = request.form["run"]
 
-    eval_dir = TRAIN_RESULT_ROOT / date / run / "eval"
+    # evalフォルダを探す (testセットごとにフォルダが切られている可能性あり)
+    # 構造: run_xxx/eval/test_set_name/jsonl/*.jsonl
+    run_dir = TRAIN_RESULT_ROOT / date / run
+    eval_root = run_dir / "eval"
+    
+    if not eval_root.exists():
+         return f"Error: eval dir not found: {eval_root}"
 
-    train_labels = load_label_set(eval_dir, "train")
-    test_labels = load_label_set(eval_dir, "test")
+    # testセットフォルダの列挙
+    test_sets = [d.name for d in eval_root.iterdir() if d.is_dir()]
+    selected_test_set = request.form.get("test_set", test_sets[0] if test_sets else "")
+    
+    # 選択されたtestセットのフォルダ
+    current_eval_dir = eval_root / selected_test_set / "jsonl"
+    
+    if not current_eval_dir.exists():
+        # 古い構造への対応 (eval直下にjsonlがない場合など)
+         # もし eval/*.jsonl ならそちらを見る
+         if list(eval_root.glob("*.jsonl")):
+             current_eval_dir = eval_root
+         else:
+             # まだ何もない
+             train_labels, test_labels, model_names = [], [], []
 
-    model_names = sorted({
-        p.stem.replace("_train", "").replace("_test", "")
-        for p in eval_dir.glob("*.jsonl")
-    })
+    if current_eval_dir.exists():
+        train_labels = load_label_set(current_eval_dir, "train")
+        test_labels = load_label_set(current_eval_dir, "test")
+        
+        # モデル名: xxx_train.jsonl から xxx を抽出
+        model_names = sorted({
+            p.stem.replace("_train", "").replace("_test", "")
+            for p in current_eval_dir.glob("*.jsonl")
+        })
+    else:
+        train_labels, test_labels, model_names = [], [], []
 
+    # 再度日付リストなどを取得してrender
     dates = sorted(p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir())
     runs = sorted(
         p.name for p in (TRAIN_RESULT_ROOT / date).iterdir()
@@ -198,146 +227,170 @@ def read_labels():
         runs=runs,
         selected_date=date,
         selected_run=run,
-        model_names=model_names,
+        
+        test_sets=test_sets,
+        selected_test_set=selected_test_set,
 
+        model_names=model_names,
         train_labels=train_labels,
         test_labels=test_labels,
-        selected_train_labels=train_labels,
-        selected_test_labels=test_labels,
-
-        view_mode="all",
-        method="tsne",
+        
+        # フォームの値を維持
         perplexity=30,
         learning_rate=200,
         early_exaggeration=12,
-        init="pca",
-        angle=0.5,
         n_neighbors=15,
         min_dist=0.1,
-
-        use_title=False,
-        title="",
-        show_labels=True,
-
-        image_data=None,
-        summary=None,
-        ari=None,
-        nmi=None,
-        png_filename="embedding.png",
     )
 
 # ======================================================
-# /plot
+# /api/plot_data : Plotly用のJSONデータを返す (Ajax用)
 # ======================================================
-@app.route("/plot", methods=["POST"])
-def plot():
-    date = request.form["date"]
-    run = request.form["run"]
-    model = request.form["model"]
-
-    selected_train = request.form.getlist("train_labels")
-    selected_test = request.form.getlist("test_labels")
-
-    view_mode = request.form.get("view_mode", "all")
-    method = request.form.get("method", "tsne")
-    show_labels = "show_labels" in request.form
-    use_title = "use_title" in request.form
-    title = request.form.get("title", "") if use_title else ""
-
+@app.route("/api/plot_data", methods=["POST"])
+def get_plot_data():
+    data = request.json
+    date = data["date"]
+    run = data["run"]
+    test_set = data.get("test_set", "")
+    model = data["model"]
+    
+    selected_train_labels = set(data.get("train_labels", []))
+    selected_test_labels = set(data.get("test_labels", []))
+    
+    view_mode = data.get("view_mode", "all")
+    method = data.get("method", "tsne")
+    
+    # パス構築
+    # run_xxx/eval/{test_set}/jsonl/{model}_{split}.jsonl
     eval_dir = TRAIN_RESULT_ROOT / date / run / "eval"
+    if test_set:
+        eval_dir = eval_dir / test_set / "jsonl"
+    
     paths = []
     if view_mode in ("all", "train"):
         paths.append(eval_dir / f"{model}_train.jsonl")
     if view_mode in ("all", "test"):
         paths.append(eval_dir / f"{model}_test.jsonl")
 
-    vecs, labels, sources = [], [], []
+    vecs, labels, sources, video_paths = [], [], [], []
     for p in paths:
-        X, l, s = load_embeddings(p)
+        if not p.exists(): continue
+        X, l, s, v = load_embeddings(p)
         vecs.append(X)
         labels.append(l)
         sources.append(s)
+        video_paths.append(v)
+
+    if not vecs:
+        return jsonify({"error": "No data found"})
 
     X = np.concatenate(vecs)
     labels = np.concatenate(labels)
     sources = np.concatenate(sources)
+    video_paths = np.concatenate(video_paths)
 
-    mask = (
-        ((sources == "train") & np.isin(labels, selected_train)) |
-        ((sources == "test") & np.isin(labels, selected_test))
-    )
-    X, labels, sources = X[mask], labels[mask], sources[mask]
+    # フィルタリング
+    # train/test それぞれ選択されたラベルに含まれるか
+    mask_train = (sources == "train") & np.isin(labels, list(selected_train_labels))
+    mask_test  = (sources == "test")  & np.isin(labels, list(selected_test_labels))
+    mask = mask_train | mask_test
+    
+    if np.sum(mask) == 0:
+         return jsonify({"error": "No samples matched the filter"})
+
+    X = X[mask]
+    labels = labels[mask]
+    sources = sources[mask]
+    video_paths = video_paths[mask]
+
+    # 次元削減
+    if len(X) < 2:
+         return jsonify({"error": "Not enough samples to plot"})
 
     if method == "tsne":
         reducer = TSNE(
             n_components=2,
-            perplexity=int(request.form.get("perplexity", 30)),
-            learning_rate=float(request.form.get("learning_rate", 200)),
-            early_exaggeration=float(request.form.get("early_exaggeration", 12)),
-            init=request.form.get("init", "pca"),
-            angle=float(request.form.get("angle", 0.5)),
+            perplexity=int(data.get("perplexity", 30)),
+            learning_rate=float(data.get("learning_rate", 200)),
+            early_exaggeration=float(data.get("early_exaggeration", 12)),
+            init=data.get("init", "pca"),
+            angle=float(data.get("angle", 0.5)),
+            random_state=42
         )
         X2d = reducer.fit_transform(X)
-        summary = f"t-SNE (samples={len(X)})"
     else:
         reducer = umap.UMAP(
-            n_neighbors=int(request.form.get("n_neighbors", 15)),
-            min_dist=float(request.form.get("min_dist", 0.1)),
+            n_neighbors=int(data.get("n_neighbors", 15)),
+            min_dist=float(data.get("min_dist", 0.1)),
             metric="cosine",
+            random_state=42
         )
         X2d = reducer.fit_transform(X)
-        summary = f"UMAP (samples={len(X)})"
 
+    # ARI / NMI 計算
     ari, nmi = compute_ari_nmi(X, labels)
-    image_data = plot_embedding(X2d, labels, sources, title, show_labels)
 
-    train_labels = load_label_set(eval_dir, "train")
-    test_labels = load_label_set(eval_dir, "test")
+    # Plotly用データ構築
+    # ラベルごとにTraceを分ける（凡例用）と、Web上で重いので
+    # 全点を1つのScatter（またはTrain/Testで2つ）にして、色データを持たせるのが軽量だが
+    # 凡例クリックでOn/OffしたいならラベルごとにTraceを作るのが定石
+    
+    unique_labels = sorted(list(set(labels)))
+    traces = []
+    
+    # 色パレット生成 (簡易的にHLSなどで自前生成もできるが、Plotlyのデフォ色が使える)
+    # ここではラベルごとにTraceを作る
+    
+    for lab in unique_labels:
+        # Train
+        m_tr = (labels == lab) & (sources == "train")
+        if np.any(m_tr):
+            traces.append({
+                "x": X2d[m_tr, 0].tolist(),
+                "y": X2d[m_tr, 1].tolist(),
+                "mode": "markers",
+                "name": f"{lab} (train)",
+                "marker": {"symbol": "circle", "size": 8, "opacity": 0.7},
+                "text": video_paths[m_tr].tolist(), # ホバー用
+                "customdata": video_paths[m_tr].tolist(), # クリックイベント用
+                "hovertemplate": f"Label: {lab}<br>Source: Train<br>Path: %{{customdata}}<extra></extra>"
+            })
 
-    model_names = sorted({
-        p.stem.replace("_train", "").replace("_test", "")
-        for p in eval_dir.glob("*.jsonl")
+        # Test
+        m_te = (labels == lab) & (sources == "test")
+        if np.any(m_te):
+            traces.append({
+                "x": X2d[m_te, 0].tolist(),
+                "y": X2d[m_te, 1].tolist(),
+                "mode": "markers",
+                "name": f"{lab} (test)",
+                "marker": {
+                    "symbol": "triangle-up", 
+                    "size": 10, 
+                    "opacity": 0.9,
+                    "line": {"width": 1, "color": "white"}
+                },
+                "text": video_paths[m_te].tolist(),
+                "customdata": video_paths[m_te].tolist(),
+                "hovertemplate": f"Label: {lab}<br>Source: Test<br>Path: %{{customdata}}<extra></extra>"
+            })
+
+    return jsonify({
+        "traces": traces,
+        "layout": {
+            "title": f"{method.upper()} Projection",
+            "hovermode": "closest",
+            "dragmode": "pan",
+            "plot_bgcolor": "#1e1e1e", # ダークモード背景
+            "paper_bgcolor": "#1e1e1e",
+            "font": {"color": "#e0e0e0"}
+        },
+        "metrics": {
+            "ari": f"{ari:.4f}" if ari else "N/A",
+            "nmi": f"{nmi:.4f}" if nmi else "N/A"
+        }
     })
 
-    dates = sorted(p.name for p in TRAIN_RESULT_ROOT.iterdir() if p.is_dir())
-    runs = sorted(
-        p.name for p in (TRAIN_RESULT_ROOT / date).iterdir()
-        if p.is_dir() and p.name.startswith("run_")
-    )
-
-    return render_template(
-        "index.html",
-        dates=dates,
-        runs=runs,
-        selected_date=date,
-        selected_run=run,
-        model_names=model_names,
-
-        train_labels=train_labels,
-        test_labels=test_labels,
-        selected_train_labels=selected_train,
-        selected_test_labels=selected_test,
-
-        view_mode=view_mode,
-        method=method,
-        perplexity=request.form["perplexity"],
-        learning_rate=request.form["learning_rate"],
-        early_exaggeration=request.form["early_exaggeration"],
-        init=request.form["init"],
-        angle=request.form["angle"],
-        n_neighbors=request.form["n_neighbors"],
-        min_dist=request.form["min_dist"],
-
-        use_title=use_title,
-        title=title,
-        show_labels=show_labels,
-
-        image_data=image_data,
-        summary=summary,
-        ari=ari,
-        nmi=nmi,
-        png_filename=(title + ".png") if title else "embedding.png",
-    )
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=5000)
