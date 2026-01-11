@@ -45,7 +45,7 @@ class ActionMLPNet(nn.Module):
             
             nn.Dropout(p_drop),
             
-            nn.Linear(hidden_dim, feature_dim, bias=False),
+            nn.Linear(hidden_dim, feature_dim, bias=True),
         )
         self._init_weights()
 
@@ -55,14 +55,24 @@ class ActionMLPNet(nn.Module):
         return x
 
     def _init_weights(self):
-        for m in self.modules():
+        # 最後の層（feature_dimを出力する層）を特定するためにループ
+        for i, m in enumerate(self.act_embed):
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_uniform_(
-                    m.weight, 
-                    mode='fan_in', 
-                    nonlinearity='leaky_relu', 
-                    a=0.1
-                )
+                # 最後のLinear層かどうか判定
+                is_last = (i == len(self.act_embed) - 1)
+                
+                if is_last:
+                    # 埋め込み層は直交初期化で散らす
+                    nn.init.orthogonal_(m.weight)
+                else:
+                    # 中間層はKaiming初期化
+                    nn.init.kaiming_uniform_(
+                        m.weight, 
+                        mode='fan_in', 
+                        nonlinearity='leaky_relu', 
+                        a=0.1
+                    )
+                
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
