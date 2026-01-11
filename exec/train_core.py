@@ -406,7 +406,10 @@ def train_step(
 
     # 2. 行動分類 CE (常に有効)
     lambda_cls = float(config.get("lambda_cls", 0.0))
-    if lambda_cls > 0:
+    # Phase 1 では lambda_cls を 1.0 に強制（CE のみで学習するため）
+    effective_lambda_cls = 1.0 if (use_curriculum and not enable_triplet) else lambda_cls
+    
+    if lambda_cls > 0 or (use_curriculum and not enable_triplet):
         logits_act = models["action_classifier"](a_vec)
         ce_act = nn.CrossEntropyLoss()(logits_act, a)
         metrics["action_ce/loss"] = ce_act.item()
@@ -415,7 +418,7 @@ def train_step(
             a.detach().cpu().numpy(),
             logits_act.argmax(dim=1).detach().cpu().numpy()
         )
-        total_loss = total_loss + lambda_cls * ce_act
+        total_loss = total_loss + effective_lambda_cls * ce_act
 
     # 3. Adversarial (Phase 3 以降で有効)
     if enable_adv and adv_enabled:
