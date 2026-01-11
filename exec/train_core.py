@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import KMeans
-from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, silhouette_score
 
 from utils import set_seed
 from utils import MAE_Dataset,X3D_Dataset, X3D_MAE_Dataset
@@ -149,11 +149,25 @@ def compute_distance_stats_epoch(
     intra_all = torch.cat(intra_dists)
     inter_all = torch.cat(inter_dists)
 
+    # Silhouette Score
+    # クラスが2以上かつサンプル数が十分な場合のみ計算
+    sil_score = None
+    if len(unique_labels) >= 2 and embeddings.size(0) > len(unique_labels):
+        try:
+            sil_score = silhouette_score(
+                embeddings.numpy(),
+                labels.numpy(),
+                metric='cosine'
+            )
+        except Exception:
+            sil_score = None
+
     return {
         "intra_mean": intra_all.mean().item(),
         "intra_var": intra_all.var(unbiased=False).item(),
         "inter_mean": inter_all.mean().item(),
         "inter_var": inter_all.var(unbiased=False).item(),
+        "silhouette": sil_score,
     }
 
 
