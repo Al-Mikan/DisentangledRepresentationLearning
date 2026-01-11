@@ -3,7 +3,7 @@ import os
 import sys
 import json
 from pathlib import Path
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Union
 
 import numpy as np
 import pandas as pd
@@ -12,14 +12,9 @@ from tqdm import tqdm
 import torch
 import torch.nn as nn
 
-import matplotlib.pyplot as plt
-from matplotlib.cm import get_cmap
-
-from sklearn.manifold import TSNE
 from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import AgglomerativeClustering
-from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
-import umap
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, silhouette_score
 
 
 # =================================
@@ -41,14 +36,16 @@ def setup_environment() -> None:
 # =================================
 # データロード
 # =================================
-def load_data_for_eval(train_label_paths, test_label_path: str, pooling: bool, default_datatype: str = "animalkingdom"):
+def load_data_for_eval(
+    train_label_paths: Union[str, List[str]], 
+    target_test_csv: str,  # 今回評価する単一のCSVパス
+    pooling: bool, 
+    default_datatype: str = "animalkingdom"
+):
     """評価用に train/test ラベルと特徴量をロードする。
-
-    train_label_paths: 学習時と同様、train 用ラベル CSV（文字列 or リスト）。
-    test_label_path  : 評価用 test ラベル CSV（単一パス）。
     """
 
-    print("📂 Loading labels and features... pooling =", pooling)
+    print(f"📂 Loading labels... Test target: {target_test_csv}")
 
     # train_csv 群の読み込み（train ソース）
     if isinstance(train_label_paths, str):
@@ -59,24 +56,22 @@ def load_data_for_eval(train_label_paths, test_label_path: str, pooling: bool, d
         df_i = pd.read_csv(p)
         df_i["source"] = "train"
         train_dfs.append(df_i)
-        print(f"  → [eval] Loaded TRAIN labels from: {p} (rows={len(df_i)})")
-
+    
     if not train_dfs:
         raise RuntimeError("[eval] train_label_paths から有効な train CSV が読み込めませんでした。")
-
+    
     train_df = pd.concat(train_dfs, ignore_index=True)
 
     # test_csv の読み込み（test ソース）
-    test_df = pd.read_csv(test_label_path)
+    test_df = pd.read_csv(target_test_csv)
     test_df["source"] = "test"
-    print(f"  → [eval] Loaded TEST labels from: {test_label_path} (rows={len(test_df)})")
-
+    
     # train+test を連結
     full_df = pd.concat([train_df, test_df], ignore_index=True)
     full_df["video_path"] = full_df["video_path"].str.replace("\\", "/").str.strip()
 
     le_act = LabelEncoder().fit(full_df["action"])
-    full_df["act_id"] = le_act.transform(full_df["action"])
+    full_df["act_id"] = le_act.transform(full_df["action"]) # 共通のLabelEncoderを使用
 
     features = {
         "vmae": {},
@@ -245,67 +240,9 @@ def extract_embeddings(df, features, models, params):
 
 
 # =================================
-# 可視化用（ラベル + train/test）
+# 評価 (t-SNE/UMAP は削除)
 # =================================
-def _build_colors(n):
-    cmaps = [get_cmap("tab20"), get_cmap("tab20b"), get_cmap("tab20c")]
-    pool = [cm(i) for cm in cmaps for i in range(cm.N)]
-    return pool[:n]
-
-
-def _plot_with_source(X, y, s, le_act, title, save_path):
-    label_names = le_act.inverse_transform(y)
-    uniq = np.unique(label_names)
-
-    colors = _build_colors(len(uniq))
-    color_map = {lab: colors[i] for i, lab in enumerate(uniq)}
-
-    marker = {"train": "o", "test": "^"}
-
-    plt.figure(figsize=(10, 8))
-    handled = set()
-
-    for lab in uniq:
-        for src in ["train", "test"]:
-            mask = (label_names == lab) & (s == src)
-            if mask.sum() == 0:
-                continue
-
-            legend_name = f"{lab} ({src})"
-            lbl = legend_name if legend_name not in handled else None
-            handled.add(legend_name)
-
-            plt.scatter(
-                X[mask, 0], X[mask, 1],
-                color=color_map[lab],
-                marker=marker[src],
-                s=14, alpha=0.75,
-                label=lbl
-            )
-
-    plt.title(title)
-    plt.xticks([]); plt.yticks([])
-
-    plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
-    plt.tight_layout()
-
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_path, dpi=220, bbox_inches="tight")
-    plt.close()
-
-
-# =================================
-# 評価 + 可視化
-# =================================
-def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
-
-    tsne_all_dir = out_dir / "tsne" / "all"
-    tsne_test_dir = out_dir / "tsne" / "test_only"
-    umap_all_dir = out_dir / "umap" / "all"
-    umap_test_dir = out_dir / "umap" / "test_only"
-
-    for d in [tsne_all_dir, tsne_test_dir, umap_all_dir, umap_test_dir]:
-        d.mkdir(parents=True, exist_ok=True)
+def evaluate_metrics(emb, lab, src, le_act, name, out_dir):
 
     # === test のみで評価 ===
     mask_test = (src == "test")
@@ -313,136 +250,39 @@ def evaluate_and_visualize(emb, lab, src, le_act, name, out_dir):
     y_test = lab[mask_test]
 
     n_clusters = len(np.unique(y_test))
+    if n_clusters < 2:
+        return 0.0, 0.0, 0.0
+
     clustering = AgglomerativeClustering(
         n_clusters=n_clusters, metric="cosine", linkage="average"
     )
     pred = clustering.fit_predict(X_test)
     ari = adjusted_rand_score(y_test, pred)
     nmi = normalized_mutual_info_score(y_test, pred)
-
-    # ==========
-    # t-SNE（all）
-    # ==========
+    
     try:
-        ts = TSNE(n_components=2, random_state=42, perplexity=30)
-
-        X_all = emb.numpy()
-        X2_all = ts.fit_transform(X_all)
-
-        X2_test = X2_all[mask_test]
-
-        _plot_with_source(
-            X2_all, lab, src, le_act,
-            f"t-SNE (train+test unified) - {name}",
-            tsne_all_dir / f"{name}.png"
-        )
-
-        _plot_with_source(
-            X2_test, y_test, np.array(["test"] * len(y_test)), le_act,
-            f"t-SNE (test only, same coords) - {name}",
-            tsne_test_dir / f"{name}.png"
-        )
-
-    except Exception as e:
-        print("t-SNE failed:", e)
-
-    # ==========
-    # UMAP（all）
-    # ==========
-    try:
-        reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric="cosine")
-
-        U_all = reducer.fit_transform(emb.numpy())
-        _plot_with_source(
-            U_all, lab, src, le_act,
-            f"UMAP (train+test) - {name}",
-            umap_all_dir / f"{name}.png"
-        )
-
-        U_test = reducer.fit_transform(X_test)
-        _plot_with_source(
-            U_test, y_test, np.array(["test"] * len(y_test)), le_act,
-            f"UMAP (test only) - {name}",
-            umap_test_dir / f"{name}.png"
-        )
-
-    except Exception as e:
-        print("UMAP failed:", e)
-
-    return ari, nmi
+        sil = silhouette_score(X_test, y_test, metric='cosine')
+    except:
+        sil = 0.0
+    
+    return ari, nmi, sil
 
 
 # =================================
-# α ログの解析（mean / var を epoch ごとに可視化）
+# JSONL 保存ユーティリティ
 # =================================
-def analyze_alpha_logs(run_dir: Path, out_dir: Path):
-    alpha_dir = run_dir / "alpha_logs"
-    if not alpha_dir.exists():
-        print("ℹ️ alpha_logs directory not found, skip alpha analysis.")
-        return
-
-    stats = []  # (epoch, mean, var)
-
-    for npy_path in sorted(alpha_dir.glob("*.npy")):
-        stem = npy_path.stem  # e.g. alpha_trial023_epoch027
-        epoch = None
-        for part in stem.split("_"):
-            if part.startswith("epoch"):
-                try:
-                    epoch = int(part.replace("epoch", ""))
-                except ValueError:
-                    pass
-
-        if epoch is None:
-            print(f"⚠️ Could not parse epoch from filename: {npy_path.name}")
-            continue
-
-        try:
-            alpha_epoch = np.load(npy_path)  # shape: (N, D)
-            alpha_epoch = alpha_epoch.astype(np.float32)
-        except Exception as e:
-            print(f"⚠️ Failed to load {npy_path}: {e}")
-            continue
-
-        mean_alpha = float(alpha_epoch.mean())
-        var_alpha = float(alpha_epoch.var())
-
-        stats.append((epoch, mean_alpha, var_alpha))
-
-    if not stats:
-        print("ℹ️ No valid alpha logs found.")
-        return
-
-    # epoch 順にソート
-    stats.sort(key=lambda x: x[0])
-    epochs  = [s[0] for s in stats]
-    means   = [s[1] for s in stats]
-    variances = [s[2] for s in stats]
-
-    # CSV 保存
-    alpha_csv = out_dir / "alpha_stats.csv"
-    df_alpha = pd.DataFrame({
-        "epoch": epochs,
-        "alpha_mean": means,
-        "alpha_var": variances,
-    })
-    df_alpha.to_csv(alpha_csv, index=False)
-    print(f"✅ Saved alpha stats → {alpha_csv}")
-
-    # グラフ保存（mean と var を同じ図に描く）
-    plt.figure(figsize=(8, 5))
-    plt.plot(epochs, means, marker="o", label="mean α")
-    plt.plot(epochs, variances, marker="s", label="var α")
-    plt.xlabel("Epoch")
-    plt.ylabel("Value")
-    plt.title("Gating α statistics over epochs")
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    out_path = out_dir / "alpha_mean_var.png"
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=220)
-    plt.close()
-    print(f"✅ Saved alpha mean/var plot → {out_path}")
+def save_jsonl(path: Path, df, labels, sources, embeddings):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        for i in range(len(embeddings)):
+            obj = {
+                "videopath": df.iloc[i]["video_path"],
+                "label": df.iloc[i]["action"],
+                "act_id": int(labels[i]),
+                "source": df.iloc[i]["source"],
+                "vector": embeddings[i].tolist(),
+            }
+            f.write(json.dumps(obj) + "\n")
 
 
 # =================================
@@ -462,10 +302,8 @@ def main(run_dir: Path):
         params = {}
         if "config_used" in base_cfg and isinstance(base_cfg["config_used"], dict):
             params.update(base_cfg["config_used"])
-            print("📘 Expanded config_used into params")
         params.update(base_cfg.get("params", {}))
         params.update(base_cfg.get("user_attrs", {}))
-
     else:
         params = {}
 
@@ -473,130 +311,184 @@ def main(run_dir: Path):
     DATATYPE = params.get("datatype", "animalkingdom")
     POOLING = bool(params.get("pooling", True))
 
-    # train_label_paths / test_label_path を config から取得（必須扱い）
+    # train_label_paths / test_label_paths を config から取得
     train_label_paths = params.get("train_label_paths", None)
-    test_label_path = params.get("test_label_paths", None)
+    test_label_paths = params.get("test_label_paths", None)
 
-    # ---- run_note.txt から上書き（あれば）----
-    note_path = run_dir / "run_note.txt"
-    if note_path.exists():
-        try:
-            txt = note_path.read_text(encoding="utf-8")
-            json_part = txt.split("=== Run Configuration (After Training) ===")[-1]
-            run_info = json.loads(json_part)
-
-            DATATYPE = run_info.get("datatype", DATATYPE)
-            POOLING = run_info.get("pooling", POOLING)
-
-            params.setdefault("datatype", DATATYPE)
-            params.setdefault("pooling", POOLING)
-
-            print(f"📘 Loaded run config from run_note: datatype={DATATYPE}, pooling={POOLING}")
-        except Exception as e:
-            print("⚠ Could not read run_note.txt:", e)
-
-    # train_label_paths / test_label_path の最終確認
     if train_label_paths is None:
-        raise RuntimeError("[eval] 'train_label_paths' が baseline_config.json / params に含まれていません。")
-    if test_label_path is None:
-        raise RuntimeError("[eval] 'test_label_path' が baseline_config.json / params に含まれていません。")
-
-    eval_root = run_dir / "eval"
-    eval_root.mkdir(exist_ok=True)
-
-    full_df, le_act, features = load_data_for_eval(train_label_paths, test_label_path, POOLING, default_datatype=DATATYPE)
-
-    results = []
-    model_paths = list(ablation_root.glob("**/*.pth"))
-
-    for mp in tqdm(model_paths, desc="Evaluating"):
-        p = params.copy()
-        p["model_path"] = mp
-
-        rel = mp.relative_to(ablation_root).parts
-        key = rel[0]          # train_mode / adversarial / flow_preprocessing
-        val = rel[1]          # gated / on / centered ...
-
-        if key in {"train_mode", "adversarial", "flow_preprocessing"}:
-            p[key] = val
-
-        if p.get("train_mode") is None:
-            print(f"⚠️ Skip (train_mode missing): {mp}")
-            continue
-
-        model = build_and_load_model(p)
-        if model is None:
-            continue
-
-        emb, lab, src, df_meta = extract_embeddings(full_df, features, model, p)
-        if emb is None:
-            continue
-
-        # =============================
-        # train / test に分割して JSONL 保存
-        # =============================
-        mask_train = (src == "train")
-        mask_test  = (src == "test")
-
-        df_train = df_meta[mask_train]
-        df_test  = df_meta[mask_test]
-
-        e_train = emb[mask_train]
-        e_test  = emb[mask_test]
-
-        save_jsonl(eval_root / f"{mp.stem}_train.jsonl",
-                   df_train, lab[mask_train], src[mask_train], e_train)
-
-        save_jsonl(eval_root / f"{mp.stem}_test.jsonl",
-                   df_test, lab[mask_test], src[mask_test], e_test)
-
-        ari, nmi = evaluate_and_visualize(emb, lab, src, le_act, mp.stem, eval_root)
-
-        results.append({
-            "name": mp.stem,
-            "train_mode": p.get("train_mode"),
-            "flow_preprocessing": p.get("flow_preprocessing"),
-            "pooling": POOLING,
-            "ari": ari,
-            "nmi": nmi,
-        })
-
-    # CSV 出力
-    pd.DataFrame(results).to_csv(eval_root / "eval_summary.csv", index=False)
-
-    # Markdown 出力
-    md_path = eval_root / "eval_summary.md"
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write("# Evaluation Summary\n\n")
-        f.write("| Model | Train Mode | Flow Preprocess | Pooling | ARI | NMI |\n")
-        f.write("|-------|------------|-----------------|---------|------|------|\n")
-        for r in results:
-            f.write(
-                f"| {r['name']} | {r['train_mode']} | {r['flow_preprocessing']} | "
-                f"{r['pooling']} | {r['ari']:.4f} | {r['nmi']:.4f} |\n"
-            )
-
-     # --- α ログの解析 & 可視化 ---
-    analyze_alpha_logs(run_dir, eval_root)
+        raise RuntimeError("[eval] 'train_label_paths' が必要です。")
+    if test_label_paths is None:
+        raise RuntimeError("[eval] 'test_label_paths' が必要です。")
     
+    # リスト化
+    if isinstance(test_label_paths, str):
+        test_label_paths = [test_label_paths]
+
+    # モデルファイルのリスト取得
+    model_paths = list(ablation_root.glob("**/*.pth"))
+    if not model_paths:
+        print("⚠️ No model files found in ablation directory.")
+        return
+
+    # 各 test set ごとにループ
+    for test_csv in test_label_paths:
+        test_stem = Path(test_csv).stem
+        eval_root = run_dir / "eval" / test_stem
+        eval_root.mkdir(parents=True, exist_ok=True)
+        
+        jsonl_root = eval_root / "jsonl"
+        jsonl_root.mkdir(exist_ok=True)
+
+        print(f"\n🚀 Evaluating on Test Set: {test_stem} ...")
+
+        # データロード (このテストセット用)
+        full_df, le_act, features = load_data_for_eval(train_label_paths, test_csv, POOLING, default_datatype=DATATYPE)
+
+        results = []
+
+        for mp in tqdm(model_paths, desc=f"Models ({test_stem})"):
+            p = params.copy()
+            p["model_path"] = mp
+
+            rel = mp.relative_to(ablation_root).parts
+            key = rel[0]          # train_mode / adversarial / flow_preprocessing
+            val = rel[1]          # gated / on / centered ...
+
+            if key in {"train_mode", "adversarial", "flow_preprocessing"}:
+                p[key] = val
+
+            if p.get("train_mode") is None:
+                continue
+
+            model = build_and_load_model(p)
+            if model is None:
+                continue
+
+            emb, lab, src, df_meta = extract_embeddings(full_df, features, model, p)
+            if emb is None:
+                continue
+
+            # =============================
+            # JSONL 保存 (jsonlフォルダへ)
+            # =============================
+            mask_test  = (src == "test")
+            df_test  = df_meta[mask_test]
+            e_test  = emb[mask_test]
+            lab_test = lab[mask_test]
+            src_test = src[mask_test]
+
+            if len(e_test) > 0:
+                # 結果を1ファイルに保存
+                save_jsonl(jsonl_root / f"{mp.stem}.jsonl",
+                        df_test, lab_test, src_test, e_test)
+
+                # Metrics
+                ari, nmi, sil = evaluate_metrics(emb, lab, src, le_act, mp.stem, eval_root)
+
+                results.append({
+                    "name": mp.stem,
+                    "train_mode": p.get("train_mode"),
+                    "pooling": POOLING,
+                    "ari": ari,
+                    "nmi": nmi,
+                    "silhouette": sil,
+                })
+
+        # CSV 出力
+        if results:
+            pd.DataFrame(results).to_csv(eval_root / "eval_summary.csv", index=False)
+            
+            # Markdown 出力
+            md_path = eval_root / "eval_summary.md"
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(f"# Evaluation Summary ({test_stem})\n\n")
+                f.write("| Model | Train Mode | Pooling | ARI | NMI | Silhouette |\n")
+                f.write("|-------|------------|---------|-----|-----|------------|\n")
+                for r in results:
+                    f.write(
+                        f"| {r['name']} | {r['train_mode']} | "
+                        f"{r['pooling']} | {r['ari']:.4f} | {r['nmi']:.4f} | {r['silhouette']:.4f} |\n"
+                    )
+
+            print(f"✅ Saved results for {test_stem} to {eval_root}")
+
+    # --- α ログの解析 & 可視化 (GatedFusion用) ---
+    analyze_alpha_logs(run_dir, run_dir / "eval")  # 共通のevalフォルダに出力
+
     print("Done.")
 
+# =================================
+# α ログの解析（mean / var を epoch ごとに可視化）
+# =================================
+def analyze_alpha_logs(run_dir: Path, out_dir: Path):
+    alpha_dir = run_dir / "alpha_logs"
+    if not alpha_dir.exists():
+        return
 
-# =================================
-# JSONL 保存ユーティリティ
-# =================================
-def save_jsonl(path: Path, df, labels, sources, embeddings):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        for i in range(len(embeddings)):
-            obj = {
-                "videopath": df.iloc[i]["video_path"],
-                "label": df.iloc[i]["action"],
-                "act_id": int(labels[i]),
-                "source": df.iloc[i]["source"],
-                "vector": embeddings[i].tolist(),
-            }
-            f.write(json.dumps(obj) + "\n")
+    import matplotlib.pyplot as plt
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stats = []  # (epoch, mean, var)
+
+    for npy_path in sorted(alpha_dir.glob("*.npy")):
+        stem = npy_path.stem  # e.g. alpha_trial023_epoch027
+        epoch = None
+        for part in stem.split("_"):
+            if part.startswith("epoch"):
+                try:
+                    epoch = int(part.replace("epoch", ""))
+                except ValueError:
+                    pass
+
+        if epoch is None:
+            continue
+
+        try:
+            alpha_epoch = np.load(npy_path)  # shape: (N, D)
+            alpha_epoch = alpha_epoch.astype(np.float32)
+        except Exception:
+            continue
+
+        mean_alpha = float(alpha_epoch.mean())
+        var_alpha = float(alpha_epoch.var())
+
+        stats.append((epoch, mean_alpha, var_alpha))
+
+    if not stats:
+        return
+
+    # epoch 順にソート
+    stats.sort(key=lambda x: x[0])
+    epochs  = [s[0] for s in stats]
+    means   = [s[1] for s in stats]
+    variances = [s[2] for s in stats]
+
+    # CSV 保存
+    alpha_csv = out_dir / "alpha_stats.csv"
+    df_alpha = pd.DataFrame({
+        "epoch": epochs,
+        "alpha_mean": means,
+        "alpha_var": variances,
+    })
+    df_alpha.to_csv(alpha_csv, index=False)
+
+    # グラフ保存
+    try:
+        plt.figure(figsize=(8, 5))
+        plt.plot(epochs, means, marker="o", label="mean α")
+        plt.plot(epochs, variances, marker="s", label="var α")
+        plt.xlabel("Epoch")
+        plt.ylabel("Value")
+        plt.title("Gating α statistics over epochs")
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        out_path = out_dir / "alpha_mean_var.png"
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=220)
+        plt.close()
+        print(f"✅ Saved alpha stats to {out_dir}")
+    except Exception as e:
+        print(f"⚠️ Failed to plot alpha stats: {e}")
 
 
 if __name__ == "__main__":
