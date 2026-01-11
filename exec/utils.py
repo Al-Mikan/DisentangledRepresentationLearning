@@ -59,36 +59,41 @@ class MAE_Dataset(BaseDataset):
         super().__init__(df, le_act, le_sp)
         self.pooling = pooling
 
-        valid = []
+        # samplesリストを構築（pooling=True/False共通で使用）
+        self.samples = []  # (npy_path, action, species) のリスト
+        
+        valid_rows = []
         for _, row in self.df.iterrows():
             vid = Path(row["video_path"]).stem
             root = detect_vec_root(row["video_path"])
             base = Path(f"./vector/{root}/{vid}")
 
             if pooling:
-                if (base / "avg_pooling.npy").exists():
-                    valid.append(row)
+                npy_path = base / "avg_pooling.npy"
+                if npy_path.exists():
+                    self.samples.append((npy_path, row["action"], row["species"]))
+                    valid_rows.append(row)
             else:
-                if list((base/"sliding_list").glob("*.npy")):
-                    valid.append(row)
+                npy_files = sorted((base / "sliding_list").glob("*.npy"))
+                if npy_files:
+                    valid_rows.append(row)
+                    for npy_path in npy_files:
+                        self.samples.append((npy_path, row["action"], row["species"]))
 
-        self.df = pd.DataFrame(valid).reset_index(drop=True)
+        # dfも保持（species prior計算などで使用）
+        self.df = pd.DataFrame(valid_rows).reset_index(drop=True)
+
+    def __len__(self):
+        return len(self.samples)
 
     def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-        vid  = Path(row["video_path"]).stem
-        root = detect_vec_root(row["video_path"])
-        base = Path(f"./vector/{root}/{vid}")
-
-        if self.pooling:
-            x = np.load(base / "avg_pooling.npy").squeeze() 
-        else:
-            x = self._load_sliding(base / "sliding_list")
+        npy_path, action, species = self.samples[idx]
+        x = np.load(npy_path).squeeze()
 
         return (
             torch.tensor(x, dtype=torch.float32),
-            torch.tensor(row["action"], dtype=torch.long),
-            torch.tensor(row["species"], dtype=torch.long),
+            torch.tensor(action, dtype=torch.long),
+            torch.tensor(species, dtype=torch.long),
         )
 
 
@@ -103,37 +108,41 @@ class X3D_Dataset(BaseDataset):
 
         folder = "x3d_vector_centered" if centered else "x3d_vector"
 
-        valid = []
+        # samplesリストを構築（pooling=True/False共通で使用）
+        self.samples = []  # (npy_path, action, species) のリスト
+        
+        valid_rows = []
         for _, row in self.df.iterrows():
             vid = Path(row["video_path"]).stem
             root = detect_vec_root(row["video_path"])
             base = Path(f"./{folder}/{root}/{vid}")
 
             if pooling:
-                if (base / "avg_pooling.npy").exists():
-                    valid.append(row)
+                npy_path = base / "avg_pooling.npy"
+                if npy_path.exists():
+                    self.samples.append((npy_path, row["action"], row["species"]))
+                    valid_rows.append(row)
             else:
-                if list((base/"sliding_list").glob("*.npy")):
-                    valid.append(row)
+                npy_files = sorted((base / "sliding_list").glob("*.npy"))
+                if npy_files:
+                    valid_rows.append(row)
+                    for npy_path in npy_files:
+                        self.samples.append((npy_path, row["action"], row["species"]))
 
-        self.df = pd.DataFrame(valid).reset_index(drop=True)
+        # dfも保持（species prior計算などで使用）
+        self.df = pd.DataFrame(valid_rows).reset_index(drop=True)
+
+    def __len__(self):
+        return len(self.samples)
 
     def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-        vid  = Path(row["video_path"]).stem
-        root = detect_vec_root(row["video_path"])
-        folder = "x3d_vector_centered" if self.centered else "x3d_vector"
-        base = Path(f"./{folder}/{root}/{vid}")
-
-        if self.pooling:
-            x = np.load(base / "avg_pooling.npy").squeeze()  
-        else:
-            x = self._load_sliding(base / "sliding_list")
+        npy_path, action, species = self.samples[idx]
+        x = np.load(npy_path).squeeze()
 
         return (
             torch.tensor(x, dtype=torch.float32),
-            torch.tensor(row["action"], dtype=torch.long),
-            torch.tensor(row["species"], dtype=torch.long),
+            torch.tensor(action, dtype=torch.long),
+            torch.tensor(species, dtype=torch.long),
         )
 
 
@@ -146,64 +155,54 @@ class X3D_MAE_Dataset(BaseDataset):
         self.centered = centered
         self.pooling  = pooling
 
-        valid = []
+        folder = "x3d_vector_centered" if centered else "x3d_vector"
+
+        # samplesリストを構築（pooling=True/False共通で使用）
+        # 形式: (x3d_npy_path, mae_npy_path, action, species)
+        self.samples = []
+        
+        valid_rows = []
         for _, row in self.df.iterrows():
             vid = Path(row["video_path"]).stem
             root = detect_vec_root(row["video_path"])
 
-            folder = "x3d_vector_centered" if centered else "x3d_vector"
-            xb = Path(f"./{folder}/{root}/{vid}")
+            x3d_base = Path(f"./{folder}/{root}/{vid}")
+            mae_base = Path(f"./vector/{root}/{vid}")
 
             if pooling:
-                if not (xb / "avg_pooling.npy").exists():
-                    continue
+                x3d_path = x3d_base / "avg_pooling.npy"
+                mae_path = mae_base / "avg_pooling.npy"
+                if x3d_path.exists() and mae_path.exists():
+                    self.samples.append((x3d_path, mae_path, row["action"], row["species"]))
+                    valid_rows.append(row)
             else:
-                if not list((xb/"sliding_list").glob("*.npy")):
-                    continue
+                x3d_files = sorted((x3d_base / "sliding_list").glob("*.npy"))
+                mae_files = sorted((mae_base / "sliding_list").glob("*.npy"))
 
-            mb = Path(f"./vector/{root}/{vid}")
-            if pooling:
-                if not (mb / "avg_pooling.npy").exists():
-                    continue
-            else:
-                if not list((mb/"sliding_list").glob("*.npy")):
-                    continue
+                if x3d_files and mae_files:
+                    valid_rows.append(row)
+                    # フレーム数が少ない方に合わせる
+                    T = min(len(x3d_files), len(mae_files))
+                    for i in range(T):
+                        self.samples.append((x3d_files[i], mae_files[i], row["action"], row["species"]))
 
-            valid.append(row)
+        # dfも保持（species prior計算などで使用）
+        self.df = pd.DataFrame(valid_rows).reset_index(drop=True)
 
-        self.df = pd.DataFrame(valid).reset_index(drop=True)
+    def __len__(self):
+        return len(self.samples)
 
     def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-        vid  = Path(row["video_path"]).stem
-        root = detect_vec_root(row["video_path"])
+        x3d_path, mae_path, action, species = self.samples[idx]
+        x3d = np.load(x3d_path).squeeze()
+        mae = np.load(mae_path).squeeze()
 
-        folder = "x3d_vector_centered" if self.centered else "x3d_vector"
-        xb = Path(f"./{folder}/{root}/{vid}")
-
-        if self.pooling:
-            x3d = np.load(xb / "avg_pooling.npy").squeeze()
-        else:
-            x3d = self._load_sliding(xb / "sliding_list")
-
-        mb = Path(f"./vector/{root}/{vid}")
-        if self.pooling:
-            mae = np.load(mb / "avg_pooling.npy").squeeze() 
-            return (
-                torch.tensor(x3d, dtype=torch.float32),
-                torch.tensor(mae, dtype=torch.float32),
-                torch.tensor(row["action"], dtype=torch.long),
-                torch.tensor(row["species"], dtype=torch.long),
-            )
-        else:
-            mae_mat = self._load_sliding(mb / "sliding_list")
-            T = min(x3d.shape[0], mae_mat.shape[0])
-            return (
-                torch.tensor(x3d[:T], dtype=torch.float32),
-                torch.tensor(mae_mat[:T], dtype=torch.float32),
-                torch.tensor(row["action"], dtype=torch.long),
-                torch.tensor(row["species"], dtype=torch.long),
-            )
+        return (
+            torch.tensor(x3d, dtype=torch.float32),
+            torch.tensor(mae, dtype=torch.float32),
+            torch.tensor(action, dtype=torch.long),
+            torch.tensor(species, dtype=torch.long),
+        )
 
 
 def set_seed(seed: int) -> None:

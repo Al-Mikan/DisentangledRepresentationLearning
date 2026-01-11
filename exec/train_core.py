@@ -143,14 +143,13 @@ def compute_distance_stats_epoch(
 
 
 
-def compute_species_prior(df, le_sp, device):
+def compute_species_prior(dataset, le_sp, device):
     """
-    train_df に基づく species prior を作る
+    train dataset に基づく species prior を作る
     - le_sp.classes_ の順序・次元に必ず一致
-    - train_df に存在しない種は確率 
     - KL(q || p) 用に安全
     """
-    sp_ids = torch.tensor(df["species"].values, device=device, dtype=torch.long)
+    sp_ids = torch.tensor(dataset.df["species"].values, device=device, dtype=torch.long)
     counts = torch.bincount(sp_ids, minlength=len(le_sp.classes_)).float()
     prior = counts / counts.sum().clamp_min(1.0)
 
@@ -216,10 +215,16 @@ def build_datasets_and_loaders(
 # --------------- Forward helpers ----------------
 
 def _encode_batch(models: nn.ModuleDict, batch, config: Dict[str, Any]):
+    """
+    バッチデータをエンコードして特徴ベクトルを返す。
+    
+    Datasetが各.npyファイルを個別サンプルとして返すため、
+    pooling=True/Falseどちらでも [B, D] 形状で入力される。
+    """
     if config["train_mode"] == "gated":
         x3d, vmae, a, s = batch
         
-        x3d = x3d.to(DEVICE).squeeze(1)
+        x3d = x3d.to(DEVICE)
         vmae = vmae.to(DEVICE)
         a = a.to(DEVICE, dtype=torch.long)
         s = s.to(DEVICE, dtype=torch.long)
@@ -231,18 +236,10 @@ def _encode_batch(models: nn.ModuleDict, batch, config: Dict[str, Any]):
         x = x.to(DEVICE)
         a = a.to(DEVICE, dtype=torch.long)
         s = s.to(DEVICE, dtype=torch.long)
-        
-        # Flatten if not pooled
-        if x.dim() == 3 and not config.get("pooling", True):
-            b, t, d = x.shape
-            x = x.reshape(b * t, d)
-            a = a.unsqueeze(1).expand(b, t).reshape(-1)
-            s = s.unsqueeze(1).expand(b, t).reshape(-1)
-
         alpha = None
+
     encoder = models["action_encoder"] if "action_encoder" in models else models["net"]
     a_vec = encoder(x)
-    # a_vec = torch.nn.functional.normalize(a_vec, p=2, dim=1)
     return a_vec, a, s, alpha
 
 
@@ -268,8 +265,8 @@ def train_step(
             x3d_dbg, vmae_dbg, a_dbg, s_dbg = batch
 
             # X3D
-            x3d_dbg = x3d_dbg.to(DEVICE).squeeze(1).float()
-            x3d_norm = F.normalize(x3d_dbg, dim=1)
+            x3d_dbg = x3d_dbg.to(DEVICE).float()
+            x3d_norm = F.normalize(x3d_dbg, dim=-1)
             sim_x3d = x3d_norm @ x3d_norm.T
             print(
                 f"⚠️ INPUT X3D  : mean={sim_x3d.mean():.4f}, "
@@ -278,7 +275,7 @@ def train_step(
 
             # VMAE
             vmae_dbg = vmae_dbg.to(DEVICE).float()
-            vmae_norm = F.normalize(vmae_dbg, dim=1)
+            vmae_norm = F.normalize(vmae_dbg, dim=-1)
             sim_vmae = vmae_norm @ vmae_norm.T
             print(
                 f"⚠️ INPUT VMAE : mean={sim_vmae.mean():.4f}, "
@@ -288,7 +285,7 @@ def train_step(
         else:
             x_dbg, a_dbg, s_dbg = batch
             x_dbg = x_dbg.to(DEVICE).float()
-            x_norm = F.normalize(x_dbg, dim=1)
+            x_norm = F.normalize(x_dbg, dim=-1)
             sim = x_norm @ x_norm.T
             print(
                 f"⚠️ INPUT FEAT : mean={sim.mean():.4f}, "
@@ -481,7 +478,7 @@ def train_model(
 ) -> float:
     """モデル学習ループ（Optuna・アブレーション共通）"""
 
-    species_prior = compute_species_prior(train_loader.dataset.df, le_sp, DEVICE)
+    species_prior = compute_species_prior(train_loader.dataset, le_sp, DEVICE)
 
     train_mode = config.get("train_mode")
     if train_mode == "gated":
