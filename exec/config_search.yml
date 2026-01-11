@@ -24,11 +24,15 @@ feature_dim: 256
 lr_enc: [1.0e-5, 5.0e-5, 1.0e-4, 3.0e-4]
   
 # Action Classification Weight
-lambda_cls: [0.05,0.1, 0.5, 1.0]
+lambda_cls: [0]
+# lambda_cls: [0.05,0.1, 0.5, 1.0]
+
   
 # Adversarial Weight (DANN)
 # 固定値で入るので、初期は小さめが良い (0.1以上は不安定になりがち)
-lambda_adv: [0.01, 0.05, 0.1, 0.2]
+# lambda_adv: [0.01, 0.05, 0.1, 0.2]
+lambda_adv: [0]
+
   
 # Batch Size
 batch_size: [256]
@@ -46,11 +50,11 @@ device: cuda
 seed: 50
 use_cross_validation: false
 cv_splits: 3
-use_augmentation: true
+use_augmentation: false
 
 # === Curriculum Learning (段階的学習) ===
 # ONにすると、Epoch ベースで Loss を段階的に追加
-curriculum_learning: true
+curriculum_learning: false
 curriculum_phases:
   # Phase 1: Action CE のみで初期表現を学習
   phase1_end: 30        # Epoch 0-30
