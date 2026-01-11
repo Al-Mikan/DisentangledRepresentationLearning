@@ -167,6 +167,12 @@ def objective(
         # =========================
         "project_name": yaml_cfg.get("project_name", "optuna"),  # wandb上のプロジェクト名
         "experiment_name": yaml_cfg.get("experiment_name", "study"),  # wandb上の実験グループ名
+        
+        # =========================
+        # Curriculum Learning (段階的学習)
+        # =========================
+        "curriculum_learning": bool(yaml_cfg.get("curriculum_learning", False)),
+        "curriculum_phases": yaml_cfg.get("curriculum_phases", {}),
     }
 
     run_name = (

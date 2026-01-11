@@ -283,6 +283,7 @@ def train_step(
     lambda_p: float,
     species_prior: Optional[torch.Tensor] = None,
     current_step: int = 0,
+    epoch: int = 0,  # 追加: Curriculum Learning 用
 ) -> Tuple[Dict[str, float], Optional[np.ndarray]]:
 
     metrics = {}
@@ -357,19 +358,53 @@ def train_step(
     main_opt = optimizers.get("encoder") or optimizers.get("main")
     main_opt.zero_grad()
 
-    # 1. Triplet Loss 
-    if miner is not None:
-        # Triplet Loss系: マイナーが作ったペア(hard)を渡す
-        hard = miner(a_vec, a)
-        total_loss = loss_fn(a_vec, a, hard)
-    else:
-        # Multi Similarity Loss系: 
-        # Loss関数内部で全ペアを計算するため、第3引数(None)は不要です
-        total_loss = loss_fn(a_vec, a)
+    # === Curriculum Learning Phase 判定 ===
+    use_curriculum = config.get("curriculum_learning", False)
+    phases = config.get("curriculum_phases", {})
+    phase1_end = phases.get("phase1_end", 30)
+    phase2_end = phases.get("phase2_end", 80)
     
-    metrics["triplet/loss"] = total_loss.item()
+    if use_curriculum:
+        # Phase 1: Action CE のみ
+        # Phase 2: + Triplet/MS Loss
+        # Phase 3: + Adversarial
+        enable_triplet = epoch >= phase1_end
+        enable_adv = epoch >= phase2_end
+        
+        # 現在のPhaseをログ (最初のstepのみ)
+        if current_step == 0:
+            if epoch < phase1_end:
+                print(f"[Curriculum] Epoch {epoch}: Phase 1 (Action CE only)")
+            elif epoch < phase2_end:
+                print(f"[Curriculum] Epoch {epoch}: Phase 2 (+ Triplet/MS Loss)")
+            else:
+                print(f"[Curriculum] Epoch {epoch}: Phase 3 (+ Adversarial)")
+    else:
+        # Curriculum OFF → 全て有効
+        enable_triplet = True
+        enable_adv = adv_enabled
 
-    # 2. 行動分類 CE (もし lambda_cls が設定されていれば)
+    # 1. Triplet Loss (Phase 2 以降で有効)
+    if enable_triplet:
+        if miner is not None:
+            hard = miner(a_vec, a)
+            triplet_loss = loss_fn(a_vec, a, hard)
+        else:
+            triplet_loss = loss_fn(a_vec, a)
+        metrics["triplet/loss"] = triplet_loss.item()
+        total_loss = triplet_loss
+    else:
+        # Phase 1: Triplet Loss は計算のみ（勾配なし）
+        with torch.no_grad():
+            if miner is not None:
+                hard = miner(a_vec, a)
+                triplet_loss = loss_fn(a_vec, a, hard)
+            else:
+                triplet_loss = loss_fn(a_vec, a)
+            metrics["triplet/loss"] = triplet_loss.item()
+        total_loss = torch.tensor(0.0, device=a_vec.device, requires_grad=True)
+
+    # 2. 行動分類 CE (常に有効)
     lambda_cls = float(config.get("lambda_cls", 0.0))
     if lambda_cls > 0:
         logits_act = models["action_classifier"](a_vec)
@@ -382,8 +417,8 @@ def train_step(
         )
         total_loss = total_loss + lambda_cls * ce_act
 
-    # 3. Adversarial (GRLを使用)
-    if adv_enabled:
+    # 3. Adversarial (Phase 3 以降で有効)
+    if enable_adv and adv_enabled:
         if adv_mode == "dann":
             rev = grl(a_vec, lam)
             logits_enc = models["discriminator"](rev)
@@ -642,7 +677,7 @@ def train_model(
 
             metrics, alpha_np = train_step(
                 models, batch, loss_fn, miner,
-                optimizers, config, le_sp, lambda_p, species_prior, current_step
+                optimizers, config, le_sp, lambda_p, species_prior, current_step, epoch
             )
 
             for k, v in metrics.items():

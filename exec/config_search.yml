@@ -47,3 +47,13 @@ seed: 50
 use_cross_validation: false
 cv_splits: 3
 use_augmentation: true
+
+# === Curriculum Learning (段階的学習) ===
+# ONにすると、Epoch ベースで Loss を段階的に追加
+curriculum_learning: true
+curriculum_phases:
+  # Phase 1: Action CE のみで初期表現を学習
+  phase1_end: 30        # Epoch 0-30
+  # Phase 2: + Triplet/MS Loss でクラスタ構造を学習
+  phase2_end: 80        # Epoch 31-80
+  # Phase 3: + Adversarial で Disentanglement (Epoch 81- 最後まで)
