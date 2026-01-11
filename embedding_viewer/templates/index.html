@@ -239,6 +239,7 @@
 
           <hr>
           <button type="submit">Plot</button>
+          <button type="button" onclick="savePlotAsImage()" style="background:#FF9800; margin-top:10px;">Save as PNG</button>
         </form>
         
         <div id="metrics-area" class="metrics-box" style="display:none;">
@@ -293,6 +294,28 @@
     function selectAll(name) {
       const checkboxes = document.querySelectorAll(`input[name="${name}"]`);
       checkboxes.forEach(cb => cb.checked = true);
+    }
+
+    function savePlotAsImage() {
+      const plotDiv = document.getElementById('myDiv');
+      if (!plotDiv || !plotDiv.data || plotDiv.data.length === 0) {
+        alert('Please generate a plot first.');
+        return;
+      }
+      
+      // 現在のフォームから情報を取得してファイル名を生成
+      const date = document.querySelector('input[name="date"]')?.value || 'unknown';
+      const run = document.querySelector('input[name="run"]')?.value || 'unknown';
+      const method = document.querySelector('select[name="method"]')?.value || 'tsne';
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
+      const filename = `embedding_${date}_${run}_${method}_${timestamp}`;
+      
+      Plotly.downloadImage(plotDiv, {
+        format: 'png',
+        width: 1200,
+        height: 800,
+        filename: filename
+      });
     }
 
     document.getElementById('plot-form').addEventListener('submit', function(e) {
