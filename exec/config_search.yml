@@ -4,7 +4,7 @@ project_name: animalkingdom_aug
 experiment_name: triplet_vs_gan
 output_root: ./train_result
 train_label_paths:
-  [./label/train/animalkingdom.csv,./label/train/animalkingdom_augmented.csv]
+  [./label/train/animalkingdom.csv]
 test_label_paths: [./label/test/elephant.csv,"./label/test/polar.csv"]
 
 # === モード設定 ===
@@ -24,25 +24,26 @@ weight_decay: [1e-3]
 lr_enc: [1.0e-5, 5.0e-5, 1.0e-4, 3.0e-4]
   
 # Action Classification Weight
-lambda_cls: [0]
-# lambda_cls: [0.05,0.1, 0.5, 1.0]
+# lambda_cls: [0]
+lambda_cls: [0.05, 0.1, 0.5, 1.0]
 
   
 # Adversarial Weight (DANN)
 # 固定値で入るので、初期は小さめが良い (0.1以上は不安定になりがち)
-# lambda_adv: [0.01, 0.05, 0.1, 0.2]
-lambda_adv: [0]
+lambda_adv: [0.01, 0.05, 0.1, 0.2, 0.5]
+# lambda_adv: [0]
 
-  
+
 # Batch Size
 batch_size: [256]
 
 # === MultiSimilarityLoss パラメータ ===
-ms_alpha: [1.0, 3.0]   # positive pairsの指数重み (デフォルト: 2.0)
+ms_alpha: [1.0, 5.0]   # positive pairsの指数重み (デフォルト: 2.0)
 ms_beta: [40.0, 60.0]  # negative pairsの指数重み (デフォルト: 50.0)
 ms_base: [0.5]    # 指数のシフト値 (デフォルト: 0.5)
 
 # === 学習環境 ===
+n_trials: 100         # Optuna の Trial 数
 epochs: 500
 num_workers: 4
 pin_memory: true

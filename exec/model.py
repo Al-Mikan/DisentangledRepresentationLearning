@@ -34,11 +34,10 @@ class SimpleMLPNet(nn.Module):
 # 2. Adversarial Discriminator Setup
 # -----------------------------
 class ActionMLPNet(nn.Module):
-    def __init__(self, input_dim=512, feature_dim=256, hidden_dim=512, p_drop=0.5):
+    def __init__(self, input_dim=512, feature_dim=256, hidden_dim=512, p_drop=0.2):
         super().__init__()
         self.act_embed = nn.Sequential(
             nn.Linear(input_dim, hidden_dim, bias=True),
-            nn.LayerNorm(hidden_dim),  # 学習安定化のため追加
             nn.LeakyReLU(0.1),
             nn.Dropout(p_drop),
             nn.Linear(hidden_dim, feature_dim, bias=True),
@@ -109,10 +108,10 @@ class GatedFusion(nn.Module):
         
         self.x3d_fc  = nn.Linear(d_x3d, d_hidden, bias=False)
         self.vmae_fc = nn.Linear(d_vmae, d_hidden, bias=False)
-        self.x3d_ln  = nn.LayerNorm(d_hidden)
-        self.vmae_ln = nn.LayerNorm(d_hidden)
+        # self.x3d_ln  = nn.LayerNorm(d_hidden)
+        # self.vmae_ln = nn.LayerNorm(d_hidden)
         self.gate = nn.Sequential(
-            nn.Linear(d_hidden * 2, d_hidden, bias=False),
+            nn.Linear(d_hidden * 2, d_hidden, bias=True),
             nn.Sigmoid()
         )
         self._init_weights()
@@ -135,6 +134,8 @@ class GatedFusion(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.kaiming_uniform_(m.weight, nonlinearity="linear")
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0)
 
 
 
