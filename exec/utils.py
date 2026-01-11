@@ -60,7 +60,8 @@ class MAE_Dataset(BaseDataset):
         self.pooling = pooling
 
         # samplesリストを構築（pooling=True/False共通で使用）
-        self.samples = []  # (npy_path, action, species) のリスト
+        # 形式: (npy_path, action, species, vid)
+        self.samples = []
         
         valid_rows = []
         for _, row in self.df.iterrows():
@@ -71,14 +72,14 @@ class MAE_Dataset(BaseDataset):
             if pooling:
                 npy_path = base / "avg_pooling.npy"
                 if npy_path.exists():
-                    self.samples.append((npy_path, row["action"], row["species"]))
+                    self.samples.append((npy_path, row["action"], row["species"], vid))
                     valid_rows.append(row)
             else:
                 npy_files = sorted((base / "sliding_list").glob("*.npy"))
                 if npy_files:
                     valid_rows.append(row)
                     for npy_path in npy_files:
-                        self.samples.append((npy_path, row["action"], row["species"]))
+                        self.samples.append((npy_path, row["action"], row["species"], vid))
 
         # dfも保持（species prior計算などで使用）
         self.df = pd.DataFrame(valid_rows).reset_index(drop=True)
@@ -87,7 +88,7 @@ class MAE_Dataset(BaseDataset):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        npy_path, action, species = self.samples[idx]
+        npy_path, action, species, vid = self.samples[idx]
         x = np.load(npy_path).squeeze()
 
         return (
@@ -109,7 +110,8 @@ class X3D_Dataset(BaseDataset):
         folder = "x3d_vector_centered" if centered else "x3d_vector"
 
         # samplesリストを構築（pooling=True/False共通で使用）
-        self.samples = []  # (npy_path, action, species) のリスト
+        # 形式: (npy_path, action, species, vid)
+        self.samples = []
         
         valid_rows = []
         for _, row in self.df.iterrows():
@@ -120,14 +122,14 @@ class X3D_Dataset(BaseDataset):
             if pooling:
                 npy_path = base / "avg_pooling.npy"
                 if npy_path.exists():
-                    self.samples.append((npy_path, row["action"], row["species"]))
+                    self.samples.append((npy_path, row["action"], row["species"], vid))
                     valid_rows.append(row)
             else:
                 npy_files = sorted((base / "sliding_list").glob("*.npy"))
                 if npy_files:
                     valid_rows.append(row)
                     for npy_path in npy_files:
-                        self.samples.append((npy_path, row["action"], row["species"]))
+                        self.samples.append((npy_path, row["action"], row["species"], vid))
 
         # dfも保持（species prior計算などで使用）
         self.df = pd.DataFrame(valid_rows).reset_index(drop=True)
@@ -136,7 +138,7 @@ class X3D_Dataset(BaseDataset):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        npy_path, action, species = self.samples[idx]
+        npy_path, action, species, vid = self.samples[idx]
         x = np.load(npy_path).squeeze()
 
         return (
@@ -158,7 +160,7 @@ class X3D_MAE_Dataset(BaseDataset):
         folder = "x3d_vector_centered" if centered else "x3d_vector"
 
         # samplesリストを構築（pooling=True/False共通で使用）
-        # 形式: (x3d_npy_path, mae_npy_path, action, species)
+        # 形式: (x3d_npy_path, mae_npy_path, action, species, vid)
         self.samples = []
         
         valid_rows = []
@@ -173,7 +175,7 @@ class X3D_MAE_Dataset(BaseDataset):
                 x3d_path = x3d_base / "avg_pooling.npy"
                 mae_path = mae_base / "avg_pooling.npy"
                 if x3d_path.exists() and mae_path.exists():
-                    self.samples.append((x3d_path, mae_path, row["action"], row["species"]))
+                    self.samples.append((x3d_path, mae_path, row["action"], row["species"], vid))
                     valid_rows.append(row)
             else:
                 x3d_files = sorted((x3d_base / "sliding_list").glob("*.npy"))
@@ -184,7 +186,7 @@ class X3D_MAE_Dataset(BaseDataset):
                     # フレーム数が少ない方に合わせる
                     T = min(len(x3d_files), len(mae_files))
                     for i in range(T):
-                        self.samples.append((x3d_files[i], mae_files[i], row["action"], row["species"]))
+                        self.samples.append((x3d_files[i], mae_files[i], row["action"], row["species"], vid))
 
         # dfも保持（species prior計算などで使用）
         self.df = pd.DataFrame(valid_rows).reset_index(drop=True)
@@ -193,7 +195,7 @@ class X3D_MAE_Dataset(BaseDataset):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        x3d_path, mae_path, action, species = self.samples[idx]
+        x3d_path, mae_path, action, species, vid = self.samples[idx]
         x3d = np.load(x3d_path).squeeze()
         mae = np.load(mae_path).squeeze()
 
