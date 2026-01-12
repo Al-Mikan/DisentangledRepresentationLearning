@@ -291,10 +291,16 @@ def get_plot_data():
             eval_dir = eval_dir / test_set / "jsonl"
     
     paths = []
-    if view_mode in ("all", "train"):
-        paths.append(eval_dir / f"{model}_train.jsonl")
-    if view_mode in ("all", "test"):
-        paths.append(eval_dir / f"{model}_test.jsonl")
+    # evaluate.pyは {model}.jsonl を出力する（train/testは含まれている）
+    model_jsonl = eval_dir / f"{model}.jsonl"
+    if model_jsonl.exists():
+        paths.append(model_jsonl)
+    else:
+        # フォールバック: 旧形式 {model}_train.jsonl / {model}_test.jsonl
+        if view_mode in ("all", "train"):
+            paths.append(eval_dir / f"{model}_train.jsonl")
+        if view_mode in ("all", "test"):
+            paths.append(eval_dir / f"{model}_test.jsonl")
 
     vecs, labels, sources, video_paths = [], [], [], []
     for p in paths:
