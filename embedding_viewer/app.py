@@ -50,16 +50,24 @@ def load_embeddings(path: Path):
 # ======================================================
 def load_label_set(eval_dir: Path, split: str):
     labels = set()
-    # test.jsonl あるいは train.jsonl を探す
-    for p in eval_dir.glob("*.jsonl"): 
-        # ファイル名末尾判定: {model}_train.jsonl / {model}_test.jsonl
-        if p.stem.endswith(f"_{split}"):
-            with open(p, "r") as f:
-                for line in f:
-                    try:
-                        labels.add(json.loads(line)["label"])
-                    except:
-                        pass
+    for p in eval_dir.glob("*.jsonl"):
+        # 旧形式: {model}_{split}.jsonl で末尾判定
+        # 新形式: {model}.jsonl でファイル内の source フィールドで判定
+        is_old_format = p.stem.endswith(f"_{split}")
+        
+        with open(p, "r") as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                    # 新形式: source フィールドで判定
+                    if "source" in obj:
+                        if obj["source"] == split:
+                            labels.add(obj["label"])
+                    # 旧形式: ファイル名で判定済み
+                    elif is_old_format:
+                        labels.add(obj["label"])
+                except:
+                    pass
     return sorted(labels)
 
 # ======================================================
