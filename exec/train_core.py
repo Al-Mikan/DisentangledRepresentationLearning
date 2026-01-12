@@ -411,7 +411,7 @@ def train_step(
     
     if lambda_cls > 0 or (use_curriculum and not enable_triplet):
         logits_act = models["action_classifier"](a_vec)
-        ce_act = nn.CrossEntropyLoss()(logits_act, a)
+        ce_act = nn.CrossEntropyLoss(label_smoothing=0.1)(logits_act, a)
         metrics["action_ce/loss"] = ce_act.item()
         metrics["action_ce/acc"] = (logits_act.argmax(dim=1) == a).float().mean().item()
         metrics["action_ce/mcc"] = matthews_corrcoef(

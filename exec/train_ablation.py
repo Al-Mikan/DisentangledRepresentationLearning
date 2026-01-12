@@ -136,12 +136,10 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
     # ============================================================
     
     # WandB Project Name Override
-    try:
-        base_proj = merged_config.get("project_name", "optuna")
-        merged_config["project_name"] = f"{base_proj}_ablation_{run_dir.parent.name}_{run_dir.name}"
-    except Exception:
-        base_proj = merged_config.get("project_name", "optuna")
-        merged_config["project_name"] = f"{base_proj}_ablation_{run_dir.name}"
+    # 形式: optuna_MMDD_run_xxx_ablation
+    date_str = run_dir.parent.name.replace("-", "")[4:8]  # 2026-01-12 -> 0112
+    run_num = run_dir.name.split("_")[1] if "_" in run_dir.name else "000"  # run_001_xxx -> 001
+    merged_config["project_name"] = f"optuna_{date_str}_run_{run_num}_ablation"
 
     for idx, (key, value) in enumerate(ablation_specs):
         print(f"\n🔎 [Ablation {idx+1}/{len(ablation_specs)}] {key} = {value}")
