@@ -159,7 +159,7 @@ def objective(
         "datatype": yaml_cfg.get("datatype", "animalkingdom"),
         "train_label_paths": yaml_cfg.get("train_label_paths", None),
         "aug_train_label_paths": yaml_cfg.get("aug_train_label_paths", None),
-        "test_label_paths": yaml_cfg.get("test_label_paths", None),
+        # test_label_paths は学習に使用しないため、configではなくuser_attrsに保存
 
         "fused_dim": int(yaml_cfg.get("fused_dim", 512)),   # GatedFusionで統合後の特徴ベクトル次元数
         "feature_dim": int(yaml_cfg.get("feature_dim", 256)), # 各モーダルの出力特徴次元数
@@ -191,6 +191,7 @@ def objective(
     trial.set_user_attr("train_mode", config["train_mode"])
     trial.set_user_attr("adversarial", config["adversarial"])
     trial.set_user_attr("loss_type", config["loss_type"])
+    trial.set_user_attr("test_label_paths", yaml_cfg.get("test_label_paths", []))
 
     seed = 42
     val_scores = []
