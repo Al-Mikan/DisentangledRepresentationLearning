@@ -14,7 +14,7 @@ train_mode: [gated] # mae / flow / gated
 loss_type: [msloss] # triplet / msloss
 adversarial: [dann] # dann / kl
 flow_preprocessing: [normal] # normal / centered
-pooling: [True, False]
+pooling: [true, false]
 frame_stride: 16  # pooling=False時のフレーム間隔（16=重複なし）
 
 # === モデル設定 ===

@@ -54,6 +54,8 @@ def suggest_from_yml(trial: optuna.trial.Trial, search_space: Dict[str, Any]) ->
 
             # 数値変換
             def try_float(x):
+                if isinstance(x, bool):
+                    return x
                 try:
                     return float(x)
                 except Exception:
@@ -61,7 +63,8 @@ def suggest_from_yml(trial: optuna.trial.Trial, search_space: Dict[str, Any]) ->
             val = [try_float(v) for v in val]
 
             # 2要素 → int or float の範囲探索を自動判定
-            if len(val) == 2 and all(isinstance(v, (int, float)) for v in val):
+            # boolが含まれている場合は categorical 扱いにする
+            if len(val) == 2 and all(isinstance(v, (int, float)) for v in val) and not any(isinstance(v, bool) for v in val):
                 # 👇ここが重要：整数なら suggest_int、浮動小数なら suggest_float
                 if all(isinstance(v, int) for v in val):
                     config[key] = trial.suggest_int(key, int(val[0]), int(val[1]))
