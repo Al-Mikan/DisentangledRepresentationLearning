@@ -119,9 +119,11 @@ def index():
     selected_date = request.args.get("date")
     selected_run = request.args.get("run")
     selected_test_set = request.args.get("test_set")
+    selected_pooling = request.args.get("pooling_mode", "pooling_true")
 
     runs = []
     test_sets = []
+    pooling_modes = ["pooling_true", "pooling_false"]
     model_names = []
     train_labels = []
     test_labels = []
@@ -140,7 +142,11 @@ def index():
             test_sets = sorted(d.name for d in eval_root.iterdir() if d.is_dir())
 
     if selected_date and selected_run and selected_test_set:
-        current_eval_dir = TRAIN_RESULT_ROOT / selected_date / selected_run / "eval" / selected_test_set / "jsonl"
+        # 新構造: eval/{test_set}/{pooling_mode}/jsonl/
+        current_eval_dir = TRAIN_RESULT_ROOT / selected_date / selected_run / "eval" / selected_test_set / selected_pooling / "jsonl"
+        if not current_eval_dir.exists():
+            # フォールバック: 旧構造 eval/{test_set}/jsonl/
+            current_eval_dir = TRAIN_RESULT_ROOT / selected_date / selected_run / "eval" / selected_test_set / "jsonl"
         if not current_eval_dir.exists():
             # フォールバック: eval直下にjsonlがある場合
             current_eval_dir = TRAIN_RESULT_ROOT / selected_date / selected_run / "eval"
@@ -158,9 +164,11 @@ def index():
         dates=dates,
         runs=runs,
         test_sets=test_sets,
+        pooling_modes=pooling_modes,
         selected_date=selected_date,
         selected_run=selected_run,
         selected_test_set=selected_test_set,
+        selected_pooling=selected_pooling,
         
         model_names=model_names,
         train_labels=train_labels,
@@ -182,9 +190,9 @@ def index():
 def read_labels():
     date = request.form["date"]
     run = request.form["run"]
+    selected_pooling = request.form.get("pooling_mode", "pooling_true")
 
     # evalフォルダを探す (testセットごとにフォルダが切られている可能性あり)
-    # 構造: run_xxx/eval/test_set_name/jsonl/*.jsonl
     run_dir = TRAIN_RESULT_ROOT / date / run
     eval_root = run_dir / "eval"
     
@@ -194,18 +202,20 @@ def read_labels():
     # testセットフォルダの列挙
     test_sets = [d.name for d in eval_root.iterdir() if d.is_dir()]
     selected_test_set = request.form.get("test_set", test_sets[0] if test_sets else "")
+    pooling_modes = ["pooling_true", "pooling_false"]
     
-    # 選択されたtestセットのフォルダ
-    current_eval_dir = eval_root / selected_test_set / "jsonl"
+    # 新構造: eval/{test_set}/{pooling_mode}/jsonl/
+    current_eval_dir = eval_root / selected_test_set / selected_pooling / "jsonl"
     
     if not current_eval_dir.exists():
-        # 古い構造への対応 (eval直下にjsonlがない場合など)
-         # もし eval/*.jsonl ならそちらを見る
-         if list(eval_root.glob("*.jsonl")):
-             current_eval_dir = eval_root
-         else:
-             # まだ何もない
-             train_labels, test_labels, model_names = [], [], []
+        # フォールバック: 旧構造 eval/{test_set}/jsonl/
+        current_eval_dir = eval_root / selected_test_set / "jsonl"
+    if not current_eval_dir.exists():
+        # フォールバック: eval直下
+        if list(eval_root.glob("*.jsonl")):
+            current_eval_dir = eval_root
+        else:
+            train_labels, test_labels, model_names = [], [], []
 
     if current_eval_dir.exists():
         train_labels = load_label_set(current_eval_dir, "train")
@@ -234,7 +244,9 @@ def read_labels():
         selected_run=run,
         
         test_sets=test_sets,
+        pooling_modes=pooling_modes,
         selected_test_set=selected_test_set,
+        selected_pooling=selected_pooling,
 
         model_names=model_names,
         train_labels=train_labels,
@@ -257,6 +269,7 @@ def get_plot_data():
     date = data["date"]
     run = data["run"]
     test_set = data.get("test_set", "")
+    pooling_mode = data.get("pooling_mode", "pooling_true")
     model = data["model"]
     
     selected_train_labels = set(data.get("train_labels", []))
@@ -266,10 +279,16 @@ def get_plot_data():
     method = data.get("method", "tsne")
     
     # パス構築
-    # run_xxx/eval/{test_set}/jsonl/{model}_{split}.jsonl
+    # 新構造: run_xxx/eval/{test_set}/{pooling_mode}/jsonl/{model}_{split}.jsonl
     eval_dir = TRAIN_RESULT_ROOT / date / run / "eval"
     if test_set:
-        eval_dir = eval_dir / test_set / "jsonl"
+        # 新構造を試す
+        new_path = eval_dir / test_set / pooling_mode / "jsonl"
+        if new_path.exists():
+            eval_dir = new_path
+        else:
+            # フォールバック: 旧構造
+            eval_dir = eval_dir / test_set / "jsonl"
     
     paths = []
     if view_mode in ("all", "train"):

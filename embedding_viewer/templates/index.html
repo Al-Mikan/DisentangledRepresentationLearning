@@ -170,6 +170,13 @@
             <option value="{{ts}}" {% if ts == selected_test_set %}selected{% endif %}>{{ts}}</option>
             {% endfor %}
           </select>
+          
+          <label>Pooling Mode</label>
+          <select name="pooling_mode">
+            {% for pm in pooling_modes %}
+            <option value="{{pm}}" {% if pm == selected_pooling %}selected{% endif %}>{{pm}}</option>
+            {% endfor %}
+          </select>
           <button type="submit" style="background:#2196F3;">Reload Labels</button>
         </form>
 
@@ -180,6 +187,7 @@
           <input type="hidden" name="date" value="{{selected_date}}">
           <input type="hidden" name="run" value="{{selected_run}}">
           <input type="hidden" name="test_set" value="{{selected_test_set}}">
+          <input type="hidden" name="pooling_mode" value="{{selected_pooling}}">
           
           <label>Model</label>
           <select name="model">
