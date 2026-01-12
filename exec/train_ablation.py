@@ -121,12 +121,13 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
     # Python loop で完全制御（最重要）
     # ============================================================
     
+    # WandB Project Name Override
     try:
         base_proj = merged_config.get("project_name", "optuna")
-        local_config["project_name"] = f"{base_proj}_ablation_{run_dir.parent.name}_{run_dir.name}"
+        merged_config["project_name"] = f"{base_proj}_ablation_{run_dir.parent.name}_{run_dir.name}"
     except Exception:
         base_proj = merged_config.get("project_name", "optuna")
-        local_config["project_name"] = f"{base_proj}_ablation_{run_dir.name}"
+        merged_config["project_name"] = f"{base_proj}_ablation_{run_dir.name}"
 
     for idx, (key, value) in enumerate(ablation_specs):
         print(f"\n🔎 [Ablation {idx+1}/{len(ablation_specs)}] {key} = {value}")
