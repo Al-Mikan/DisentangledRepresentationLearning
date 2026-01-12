@@ -27,12 +27,12 @@ lr_enc: [2.0e-4, 3.0e-4, 5.0e-4]
   
 # Action Classification Weight
 # lambda_cls: [0]
-lambda_cls: [0.5, 1.0, 2.0, 3.0]
+lambda_cls: [2.0, 3.0, 4.0, 5.0]
 
   
 # Adversarial Weight (DANN)
 # 固定値で入るので、初期は小さめが良い (0.1以上は不安定になりがち)
-lambda_adv: [0.1, 0.2, 0.5,0.7,1.0]
+lambda_adv: [0.5, 0.7, 1.0, 1.5]
 # lambda_adv: [0]
 
 
