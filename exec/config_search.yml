@@ -52,6 +52,7 @@ seed: 50
 use_cross_validation: false
 cv_splits: 3
 use_augmentation: false
+validation_split: true  # True: Train/Valid分割する / False: 全データを学習に使う
 
 # === Curriculum Learning (段階的学習) ===
 # ONにすると、Epoch ベースで Loss を段階的に追加

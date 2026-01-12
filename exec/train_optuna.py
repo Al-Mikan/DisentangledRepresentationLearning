@@ -151,6 +151,7 @@ def objective(
         # =========================
         "batch_size": int(yaml_cfg.get("batch_size", 64)),  # 学習バッチサイズ
         "epochs": int(yaml_cfg.get("epochs", 100)),         # 学習エポック数
+        "validation_split": bool(yaml_cfg.get("validation_split", True)), # Train/Valid分割フラグ
 
         # =========================
         # データセット・モデル構造
@@ -257,13 +258,18 @@ def objective(
         .reset_index()
         )
 
-        train_base, val_base = train_test_split(
-            base_df,
-            test_size=0.1,
-            shuffle=True,
-            random_state=seed,
-            stratify=base_df["action"],
-        )
+        if config.get("validation_split", True):
+            train_base, val_base = train_test_split(
+                base_df,
+                test_size=0.1,
+                shuffle=True,
+                random_state=seed,
+                stratify=base_df["action"],
+            )
+        else:
+            # 全データ学習モード
+            train_base = base_df.copy()
+            val_base = base_df.copy() # 評価もTrainingデータで行う
 
         train_df = full_df[full_df["base_video_id"].isin(train_base["base_video_id"])].reset_index(drop=True)
         val_df   = full_df[full_df["base_video_id"].isin(val_base["base_video_id"])].reset_index(drop=True)
