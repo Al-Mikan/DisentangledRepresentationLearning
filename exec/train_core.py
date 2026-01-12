@@ -603,8 +603,14 @@ def train_model(
             weight_decay=wd,
         )
     else:
-        models["net"] = ActionMLPNet(input_dim=512, feature_dim=256, hidden_dim=512).to(DEVICE)
-        models["action_classifier"] = ActionClassifier(256, num_actions).to(DEVICE)
+        models["net"] = ActionMLPNet(
+            input_dim=D, 
+            feature_dim=feature_dim, 
+            hidden_dim=512, 
+            p_drop=p_drop
+        ).to(DEVICE)
+        
+        models["action_classifier"] = ActionClassifier(feature_dim, num_actions).to(DEVICE)
 
         params = list(models["net"].parameters()) + \
                  list(models["action_classifier"].parameters())
