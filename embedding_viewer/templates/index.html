@@ -194,6 +194,13 @@
             <option value="test">Test Only</option>
             <option value="train">Train Only</option>
           </select>
+          
+          <!-- Visibility Toggles (Effective only when View Mode is Train + Test) -->
+          <div style="margin-top: 5px; margin-bottom: 10px; font-size: 0.9em; padding-left: 5px;">
+             <strong>Visual Filters:</strong><br>
+             <label><input type="checkbox" id="show-train-check" checked onchange="updateVisibility()"> Show Train</label>
+             <label><input type="checkbox" id="show-test-check" checked onchange="updateVisibility()"> Show Test</label>
+          </div>
 
           <label>Algorithm</label>
           <select name="method" id="method-select" onchange="toggleParams()">
@@ -291,6 +298,44 @@
       document.getElementById("umap-params").style.display = (method === "umap") ? "block" : "none";
     }
 
+    function updateVisibility() {
+      const showTrain = document.getElementById('show-train-check').checked;
+      const showTest = document.getElementById('show-test-check').checked;
+      const plotDiv = document.getElementById('myDiv');
+      
+      if (!plotDiv || !plotDiv.data) return;
+
+      const update = { visible: [] };
+      const indices = [];
+
+      plotDiv.data.forEach((trace, i) => {
+          let isTrain = trace.name.includes("(train)");
+          let isTest = trace.name.includes("(test)");
+          
+          if (isTrain) {
+              indices.push(i);
+              update.visible.push(showTrain ? true : false); // or 'legendonly'
+          } else if (isTest) {
+              indices.push(i);
+              update.visible.push(showTest ? true : false);
+          } else {
+              // その他（もしあれば）は変更しない
+              indices.push(i);
+              update.visible.push(true); 
+          }
+      });
+      
+      // Plotly.restyle(graphDiv, update, indices)
+      // update.visible は配列で渡す必要があり、indicesに対応させる
+      // しかしrestyleの仕様では、属性ごとに配列を渡すと「全トレースに適用」あるいは「指定インデックスに適用」
+      
+      // シンプルにループでsetVisibilityする方が確実かも（restyleは少し癖がある）
+      // しかしrestyleの方が効率的。
+      // restyle(div, {visible: [val1, val2, ...]}, [idx1, idx2, ...])
+      
+      Plotly.restyle(plotDiv, {'visible': update.visible}, indices);
+    }
+
     function selectAll(name) {
       const checkboxes = document.querySelectorAll(`input[name="${name}"]`);
       checkboxes.forEach(cb => cb.checked = true);
@@ -351,6 +396,9 @@
         }
         
         Plotly.newPlot('myDiv', data.traces, data.layout, {responsive: true});
+        
+        // Apply initial visibility
+        updateVisibility();
         
         // Update Metrics
         document.getElementById('metrics-area').style.display = 'block';
