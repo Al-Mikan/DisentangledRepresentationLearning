@@ -380,23 +380,20 @@ def main(run_dir: Path):
                 # =============================
                 # JSONL 保存 (jsonlフォルダへ)
                 # =============================
-                mask_test  = (src == "test")
-                df_test  = df_meta[mask_test]
-                e_test  = emb[mask_test]
+                # train + test 両方を保存
+                if len(emb) > 0:
+                    save_jsonl(jsonl_root / f"{mp.stem}.jsonl",
+                            df_meta, lab, src, emb)
+                
+                # メトリクス計算は test のみ
+                mask_test = (src == "test")
+                e_test = emb[mask_test]
                 lab_test = lab[mask_test]
-                src_test = src[mask_test]
 
                 if len(e_test) > 0:
-                    # 結果を1ファイルに保存
-                    save_jsonl(jsonl_root / f"{mp.stem}.jsonl",
-                            df_test, lab_test, src_test, e_test)
-
                     # Metrics
-                    # compute_distance_stats_epoch は train_core から import するか、ここに対応
-                    # ここでは直接呼び出して計算する形にする
-                    # lab (numpy) -> tensor
                     lab_tensor = torch.tensor(lab_test, dtype=torch.long)
-                    emb_tensor = e_test # 既にTensor (cpu)
+                    emb_tensor = e_test  # 既にTensor (cpu)
 
                     stats = compute_distance_stats_epoch(emb_tensor, lab_tensor)
                     
