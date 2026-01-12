@@ -328,6 +328,20 @@ def train_step(
     adv_mode = config.get("adversarial", "off")
     adv_enabled = adv_mode != "off"
     lam = float(config.get("lambda_adv", 0.1))
+    
+    # ========================================
+    # Lambda Warmup Schedule
+    # 学習初期は lambda_cls, lambda_adv を小さく、徐々に上げる
+    # ========================================
+    warmup_epochs = int(config.get("lambda_warmup_epochs", 40))
+    if epoch < warmup_epochs and warmup_epochs > 0:
+        ratio = epoch / warmup_epochs
+        warmup_factor = ratio ** 2  # 指数関数的（2乗）に増加
+    else:
+        warmup_factor = 1.0
+    
+    # lambda_adv に warmup を適用
+    lam = lam * warmup_factor
 
     # ==========================================
     # (1) Discriminator の更新 (種を当てたい)
@@ -406,6 +420,8 @@ def train_step(
 
     # 2. 行動分類 CE (常に有効)
     lambda_cls = float(config.get("lambda_cls", 0.0))
+    # Warmup を適用（Curriculum の Phase 1 を除く）
+    lambda_cls = lambda_cls * warmup_factor
     # Phase 1 では lambda_cls を 1.0 に強制（CE のみで学習するため）
     effective_lambda_cls = 1.0 if (use_curriculum and not enable_triplet) else lambda_cls
     
