@@ -563,6 +563,10 @@ def train_model(
     adv_mode = config.get("adversarial", "off")
     adv_enabled = adv_mode != "off"
 
+    # 追加: Configからパラメータ取得
+    feature_dim = int(config.get("feature_dim", 256))
+    p_drop = float(config.get("dropout", 0.1))
+
     num_species = len(le_sp.classes_)
     num_actions = len(le_act.classes_)
 
@@ -570,9 +574,15 @@ def train_model(
     # モデル・オプティマイザ構築
     # -------------------------------
     if adv_enabled:
-        models["action_encoder"] = ActionMLPNet(input_dim=512, feature_dim=256, hidden_dim=512).to(DEVICE)
-        models["discriminator"] = SpeciesDiscriminator(256, num_species).to(DEVICE)
-        models["action_classifier"] = ActionClassifier(256, num_actions).to(DEVICE)
+        models["action_encoder"] = ActionMLPNet(
+            input_dim=D, 
+            feature_dim=feature_dim, 
+            hidden_dim=512, 
+            p_drop=p_drop
+        ).to(DEVICE)
+        
+        models["discriminator"] = SpeciesDiscriminator(feature_dim, num_species).to(DEVICE)
+        models["action_classifier"] = ActionClassifier(feature_dim, num_actions).to(DEVICE)
 
         params_enc = list(models["action_encoder"].parameters()) + \
                      list(models["action_classifier"].parameters())
