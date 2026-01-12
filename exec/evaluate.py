@@ -173,7 +173,7 @@ def build_and_load_model(params: Dict):
     enc_state = {k.replace(prefix, ""): v
                  for k, v in state_dict.items() if k.startswith(prefix)}
 
-    encoder = ActionMLPNet(input_dim=512, feature_dim=256, hidden_dim=512).to(DEVICE).eval()
+    encoder = ActionMLPNet(input_dim=D, feature_dim=256, hidden_dim=512).to(DEVICE).eval()
     encoder.load_state_dict(enc_state, strict=False)
     models["encoder"] = encoder
 
@@ -310,7 +310,8 @@ def main(run_dir: Path):
 
     # デフォルト値
     DATATYPE = params.get("datatype", "animalkingdom")
-    POOLING = bool(params.get("pooling", True))
+    # POOLINGは両方試す
+    POOLING_MODES = [True, False]
 
     # train_label_paths / test_label_paths を config から取得
     train_label_paths = params.get("train_label_paths", None)
@@ -331,115 +332,122 @@ def main(run_dir: Path):
         print("⚠️ No model files found in ablation directory.")
         return
 
-    # 各 test set ごとにループ
-    for test_csv in test_label_paths:
-        test_stem = Path(test_csv).stem
-        eval_root = run_dir / "eval" / test_stem
-        eval_root.mkdir(parents=True, exist_ok=True)
-        
-        jsonl_root = eval_root / "jsonl"
-        jsonl_root.mkdir(exist_ok=True)
+    # 各 pooling モードごとにループ
+    for POOLING in POOLING_MODES:
+        pooling_str = "pooling_true" if POOLING else "pooling_false"
+        print(f"\n{'='*60}")
+        print(f"🔄 Evaluating with {pooling_str} ...")
+        print(f"{'='*60}")
 
-        print(f"\n🚀 Evaluating on Test Set: {test_stem} ...")
-
-        # データロード (このテストセット用)
-        full_df, le_act, features = load_data_for_eval(train_label_paths, test_csv, POOLING, default_datatype=DATATYPE)
-
-        results = []
-
-        for mp in tqdm(model_paths, desc=f"Models ({test_stem})"):
-            p = params.copy()
-            p["model_path"] = mp
-
-            rel = mp.relative_to(ablation_root).parts
-            key = rel[0]          # train_mode / adversarial / flow_preprocessing
-            val = rel[1]          # gated / on / centered ...
-
-            if key in {"train_mode", "adversarial", "flow_preprocessing"}:
-                p[key] = val
-
-            if p.get("train_mode") is None:
-                continue
-
-            model = build_and_load_model(p)
-            if model is None:
-                continue
-
-            emb, lab, src, df_meta = extract_embeddings(full_df, features, model, p)
-            if emb is None:
-                continue
-
-            # =============================
-            # JSONL 保存 (jsonlフォルダへ)
-            # =============================
-            mask_test  = (src == "test")
-            df_test  = df_meta[mask_test]
-            e_test  = emb[mask_test]
-            lab_test = lab[mask_test]
-            src_test = src[mask_test]
-
-            if len(e_test) > 0:
-                # 結果を1ファイルに保存
-                save_jsonl(jsonl_root / f"{mp.stem}.jsonl",
-                        df_test, lab_test, src_test, e_test)
-
-                # Metrics
-                # compute_distance_stats_epoch は train_core から import するか、ここに対応
-                # ここでは直接呼び出して計算する形にする
-                # lab (numpy) -> tensor
-                lab_tensor = torch.tensor(lab_test, dtype=torch.long)
-                emb_tensor = e_test # 既にTensor (cpu)
-
-                stats = compute_distance_stats_epoch(emb_tensor, lab_tensor)
-                
-                # ARI, NMI も計算
-                ari, nmi, _ = evaluate_metrics(emb, lab, src, le_act, mp.stem, eval_root)
-
-                res_dict = {
-                    "name": mp.stem,
-                    "train_mode": p.get("train_mode"),
-                    "pooling": POOLING,
-                    "ari": ari,
-                    "nmi": nmi,
-                }
-                # stats の内容をマージ (intra_mean, intra_var, inter_mean, inter_var, silhouette)
-                if stats:
-                    res_dict.update(stats)
-                else:
-                    # 計算できなかった場合（クラス不足など）
-                    res_dict.update({
-                        "intra_mean": 0, "intra_var": 0,
-                        "inter_mean": 0, "inter_var": 0,
-                        "silhouette": 0
-                    })
-
-                results.append(res_dict)
-
-        # CSV 出力
-        if results:
-            pd.DataFrame(results).to_csv(eval_root / "eval_summary.csv", index=False)
+        # 各 test set ごとにループ
+        for test_csv in test_label_paths:
+            test_stem = Path(test_csv).stem
+            eval_root = run_dir / "eval" / test_stem / pooling_str
+            eval_root.mkdir(parents=True, exist_ok=True)
             
-            # Markdown 出力
-            md_path = eval_root / "eval_summary.md"
-            with open(md_path, "w", encoding="utf-8") as f:
-                f.write(f"# Evaluation Summary ({test_stem})\n\n")
-                # ヘッダー作成
-                headers = ["Model", "Train Mode", "Pooling", "ARI", "NMI", "Silhouette", 
-                           "Intra Mean", "Intra Var", "Inter Mean", "Inter Var"]
-                f.write("| " + " | ".join(headers) + " |\n")
-                f.write("|" + "|".join(["---"] * len(headers)) + "|\n")
-                
-                for r in results:
-                    row_vals = [
-                        r['name'], r['train_mode'], str(r['pooling']),
-                        f"{r['ari']:.4f}", f"{r['nmi']:.4f}", 
-                        f"{r.get('silhouette', 0):.4f}",
-                        f"{r.get('intra_mean', 0):.4f}", f"{r.get('intra_var', 0):.4f}",
-                        f"{r.get('inter_mean', 0):.4f}", f"{r.get('inter_var', 0):.4f}"
-                    ]
-                    f.write("| " + " | ".join(row_vals) + " |\n")
+            jsonl_root = eval_root / "jsonl"
+            jsonl_root.mkdir(exist_ok=True)
 
-            print(f"✅ Saved results for {test_stem} to {eval_root}")
+            print(f"\n🚀 Evaluating on Test Set: {test_stem} ({pooling_str}) ...")
+
+            # データロード (このテストセット用)
+            full_df, le_act, features = load_data_for_eval(train_label_paths, test_csv, POOLING, default_datatype=DATATYPE)
+
+            results = []
+
+            for mp in tqdm(model_paths, desc=f"Models ({test_stem})"):
+                p = params.copy()
+                p["model_path"] = mp
+
+                rel = mp.relative_to(ablation_root).parts
+                key = rel[0]          # train_mode / adversarial / flow_preprocessing
+                val = rel[1]          # gated / on / centered ...
+
+                if key in {"train_mode", "adversarial", "flow_preprocessing"}:
+                    p[key] = val
+
+                if p.get("train_mode") is None:
+                    continue
+
+                model = build_and_load_model(p)
+                if model is None:
+                    continue
+
+                emb, lab, src, df_meta = extract_embeddings(full_df, features, model, p)
+                if emb is None:
+                    continue
+
+                # =============================
+                # JSONL 保存 (jsonlフォルダへ)
+                # =============================
+                mask_test  = (src == "test")
+                df_test  = df_meta[mask_test]
+                e_test  = emb[mask_test]
+                lab_test = lab[mask_test]
+                src_test = src[mask_test]
+
+                if len(e_test) > 0:
+                    # 結果を1ファイルに保存
+                    save_jsonl(jsonl_root / f"{mp.stem}.jsonl",
+                            df_test, lab_test, src_test, e_test)
+
+                    # Metrics
+                    # compute_distance_stats_epoch は train_core から import するか、ここに対応
+                    # ここでは直接呼び出して計算する形にする
+                    # lab (numpy) -> tensor
+                    lab_tensor = torch.tensor(lab_test, dtype=torch.long)
+                    emb_tensor = e_test # 既にTensor (cpu)
+
+                    stats = compute_distance_stats_epoch(emb_tensor, lab_tensor)
+                    
+                    # ARI, NMI も計算
+                    ari, nmi, _ = evaluate_metrics(emb, lab, src, le_act, mp.stem, eval_root)
+
+                    res_dict = {
+                        "name": mp.stem,
+                        "train_mode": p.get("train_mode"),
+                        "pooling": POOLING,
+                        "ari": ari,
+                        "nmi": nmi,
+                    }
+                    # stats の内容をマージ (intra_mean, intra_var, inter_mean, inter_var, silhouette)
+                    if stats:
+                        res_dict.update(stats)
+                    else:
+                        # 計算できなかった場合（クラス不足など）
+                        res_dict.update({
+                            "intra_mean": 0, "intra_var": 0,
+                            "inter_mean": 0, "inter_var": 0,
+                            "silhouette": 0
+                        })
+
+                    results.append(res_dict)
+
+            # CSV 出力
+            if results:
+                pd.DataFrame(results).to_csv(eval_root / "eval_summary.csv", index=False)
+                
+                # Markdown 出力
+                md_path = eval_root / "eval_summary.md"
+                with open(md_path, "w", encoding="utf-8") as f:
+                    f.write(f"# Evaluation Summary ({test_stem} - {pooling_str})\n\n")
+                    # ヘッダー作成
+                    headers = ["Model", "Train Mode", "Pooling", "ARI", "NMI", "Silhouette", 
+                               "Intra Mean", "Intra Var", "Inter Mean", "Inter Var"]
+                    f.write("| " + " | ".join(headers) + " |\n")
+                    f.write("|" + "|".join(["---"] * len(headers)) + "|\n")
+                    
+                    for r in results:
+                        row_vals = [
+                            r['name'], r['train_mode'], str(r['pooling']),
+                            f"{r['ari']:.4f}", f"{r['nmi']:.4f}", 
+                            f"{r.get('silhouette', 0):.4f}",
+                            f"{r.get('intra_mean', 0):.4f}", f"{r.get('intra_var', 0):.4f}",
+                            f"{r.get('inter_mean', 0):.4f}", f"{r.get('inter_var', 0):.4f}"
+                        ]
+                        f.write("| " + " | ".join(row_vals) + " |\n")
+
+                print(f"✅ Saved results for {test_stem} ({pooling_str}) to {eval_root}")
 
     # --- α ログの解析 & 可視化 (GatedFusion用) ---
     analyze_alpha_logs(run_dir, run_dir / "eval")  # 共通のevalフォルダに出力
