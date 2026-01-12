@@ -68,6 +68,40 @@ def append_result_log(run_dir: Path, record: dict):
     with open(result_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+def load_dataset(config: dict) -> pd.DataFrame:
+    """Configに基づいてデータセットを読み込む（Augmentation対応）"""
+    use_aug = config.get("use_augmentation", False) # 修正: この行が必要
+    # Augmentation有効なら両方を結合
+    if use_aug:
+        std_paths = config.get("train_label_paths")
+        if isinstance(std_paths, str): std_paths = [std_paths]
+        if std_paths is None: std_paths = []
+
+        aug_paths = config.get("aug_train_label_paths")
+        if isinstance(aug_paths, str): aug_paths = [aug_paths]
+        if aug_paths is None: aug_paths = []
+
+        target_paths = std_paths + aug_paths
+        print(f"  → Loading STANDARD + AUGMENTED train CSVs: {target_paths}")
+    else:
+        target_paths = config.get("train_label_paths")
+        if target_paths is None:
+            raise RuntimeError("❌ train_label_paths が設定されていません")
+        print(f"  → Loading STANDARD train CSVs: {target_paths}")
+
+    if isinstance(target_paths, str):
+        target_paths = [target_paths]
+
+    dfs = []
+    for p in target_paths:
+        df_i = pd.read_csv(p)
+        dfs.append(df_i)
+        
+    if not dfs:
+        raise RuntimeError("No dataframe loaded.")
+        
+    return pd.concat(dfs, ignore_index=True)
+
 
 # ============================================================
 # Main Ablation Function
@@ -84,26 +118,6 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
     print(f"✅ Loaded baseline parameters from {run_dir}/baseline_config.json")
 
     merged_config = merge_config_in_memory(base_yaml, baseline_params)
-
-    # === データ読み込み ===
-    train_label_paths = merged_config.get("train_label_paths")
-    if train_label_paths is None:
-        raise RuntimeError("❌ train_label_paths が設定されていません")
-
-    if isinstance(train_label_paths, str):
-        train_label_paths = [train_label_paths]
-
-    dfs = []
-    for p in train_label_paths:
-        df_i = pd.read_csv(p)
-        dfs.append(df_i)
-        print(f"  → Loaded train CSV: {p} (rows={len(df_i)})")
-
-    full_df = pd.concat(dfs, ignore_index=True)
-    print(f"  → Total train rows: {len(full_df)}")
-
-    le_act = LabelEncoder().fit(full_df["action"])
-    le_sp  = LabelEncoder().fit(full_df["species"])
 
     # === Study（ログ用）===
     study = optuna.create_study(direction="maximize", study_name="ablation_fixed_trials")
@@ -140,13 +154,26 @@ def run_optuna_ablation(cfg_path: str, abl_path: str, run_dir_manual: str):
             print("⚙️ Force adversarial = off (train_mode ablation)")
             local_config["adversarial"] = "off"
 
-        # list 値を固定化
+        # list 値を固定化 (ただしパス系はリストのまま保持)
+        skip_keys = {"train_label_paths", "aug_train_label_paths", "test_label_paths"}
         for k, v in list(local_config.items()):
+            if k in skip_keys:
+                continue  # パスはリストのまま
             if isinstance(v, list):
                 if k in baseline_params and isinstance(baseline_params[k], (str, float, int, bool)):
                     local_config[k] = baseline_params[k]
                 else:
                     local_config[k] = v[0]
+
+        # --- データ読み込み (Augmentation設定反映のためここで実施) ---
+        full_df = load_dataset(local_config)
+        print(f"  → Total train rows: {len(full_df)}")
+
+        # --- Label Encoder ---
+        le_sp = LabelEncoder()
+        le_sp.fit(full_df["species"])
+        le_act = LabelEncoder()
+        le_act.fit(full_df["action"])
 
         ablation_dir = run_dir / "ablation" / key / str(value)
         ablation_dir.mkdir(parents=True, exist_ok=True)

@@ -158,6 +158,7 @@ def objective(
         # =========================
         "datatype": yaml_cfg.get("datatype", "animalkingdom"),
         "train_label_paths": yaml_cfg.get("train_label_paths", None),
+        "aug_train_label_paths": yaml_cfg.get("aug_train_label_paths", None),
         "test_label_paths": yaml_cfg.get("test_label_paths", None),
 
         "fused_dim": int(yaml_cfg.get("fused_dim", 512)),   # GatedFusionで統合後の特徴ベクトル次元数
@@ -206,6 +207,8 @@ def objective(
         # 🔒 augmentation のうち「元動画があるもの」だけ残す
         full_df = full_df[full_df["base_video_id"].isin(valid_base_ids)]
     else:
+        # Augmentationを使用しない場合、_aug を含むデータを除外する
+        full_df = full_df[~full_df["video_path"].str.contains("_aug")].copy()
         full_df["base_video_id"] = full_df["video_path"]
     # ======================================
     # Cross-Validation ありの場合

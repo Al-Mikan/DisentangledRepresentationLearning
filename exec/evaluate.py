@@ -205,12 +205,15 @@ def extract_embeddings(df, features, models, params):
             x_list = features[flow_key][p]
             v_list = features["vmae"][p]
 
-            assert len(x_list) == len(v_list), (
-                f"[GatedFusion] Sliding window mismatch for {p}: "
-                f"flow={len(x_list)}, vmae={len(v_list)}"
-            )
+            # ウィンドウ数不一致の場合は警告して短い方に合わせる
+            if len(x_list) != len(v_list):
+                print(
+                    f"⚠️ [GatedFusion] Sliding window mismatch for {p}: "
+                    f"flow={len(x_list)}, vmae={len(v_list)} → clipping to min"
+                )
+            n_windows = min(len(x_list), len(v_list))
 
-            for x_vec, v_vec in zip(x_list, v_list):
+            for x_vec, v_vec in zip(x_list[:n_windows], v_list[:n_windows]):
                 xx = torch.tensor(x_vec).unsqueeze(0).float().to(DEVICE)
                 vv = torch.tensor(v_vec).unsqueeze(0).float().to(DEVICE)
                 fused, _ = fusion(xx, vv)
