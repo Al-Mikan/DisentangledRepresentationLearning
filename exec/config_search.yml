@@ -14,17 +14,21 @@ train_mode: [gated] # mae / flow / gated
 loss_type: [msloss] # triplet / msloss
 adversarial: [dann] # dann / kl
 flow_preprocessing: [normal] # normal / centered
-pooling: False
+pooling: [True, False]
 frame_stride: 16  # pooling=False時のフレーム間隔（16=重複なし）
 
 # === モデル設定 ===
 fused_dim: 512
 feature_dim: 256
-weight_decay: [1e-3]
+
 # === ハイパーパラメータ探索範囲 ===
-# Learning Rate: 発散を防ぐため少し小さめから探索
-lr_enc: [2.0e-4, 3.0e-4, 5.0e-4]
+# Learning Rate: 過学習を防ぐため、より小さい値を探索
+lr_enc: [5.0e-5, 1.0e-4, 2.0e-4]
   
+# Regularization
+weight_decay: [1.0e-4, 1.0e-3, 1.0e-2]
+dropout: [0.3, 0.5]
+
 # Action Classification Weight
 # lambda_cls: [0]
 lambda_cls: [0.01, 0.05, 0.1, 0.2]
@@ -59,7 +63,7 @@ validation_split: true  # True: Train/Valid分割する / False: 全データを
 
 # === Curriculum Learning (段階的学習) ===
 # ONにすると、Epoch ベースで Loss を段階的に追加
-curriculum_learning: false
+curriculum_learning: true
 curriculum_phases:
   # Phase 1: Action CE のみで初期表現を学習
   phase1_end: 30        # Epoch 0-30
