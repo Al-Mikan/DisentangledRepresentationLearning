@@ -14,7 +14,9 @@ import torch.nn as nn
 
 from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import AgglomerativeClustering
-from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, silhouette_score
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, silhouette_score, accuracy_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score
 
 
 # =================================
@@ -243,6 +245,46 @@ def extract_embeddings(df, features, models, params):
 # =================================
 # 評価 (t-SNE/UMAP は削除)
 # =================================
+def compute_species_clf_accuracy(emb, df_meta, src):
+    """
+    埋め込みから species を予測する分類器の精度を計算。
+    低い精度 = 種情報が除去されている（良いdisentanglement）
+    """
+    # test データのみで評価
+    mask_test = (src == "test")
+    X = emb[mask_test].numpy() if hasattr(emb[mask_test], 'numpy') else emb[mask_test]
+    
+    # species ラベルを取得
+    if "species" not in df_meta.columns:
+        return None  # species 情報がない
+    
+    # df_metaはreset_indexされていない可能性があるので、valuesで取得
+    df_meta_reset = df_meta.reset_index(drop=True)
+    species_labels = df_meta_reset.loc[mask_test, "species"].values
+    
+    # ユニークなクラス数を確認
+    unique_species = np.unique(species_labels)
+    if len(unique_species) < 2:
+        return None  # 分類できない
+    
+    # LabelEncoding
+    le_sp = LabelEncoder()
+    y = le_sp.fit_transform(species_labels)
+    
+    # LogisticRegression で交差検証
+    try:
+        clf = LogisticRegression(max_iter=500, random_state=42, solver='lbfgs', multi_class='multinomial')
+        # 5-fold cross validation
+        n_splits = min(5, len(unique_species), len(y) // 2)  # クラス数やサンプル数に応じて調整
+        if n_splits < 2:
+            return None
+        scores = cross_val_score(clf, X, y, cv=n_splits, scoring='accuracy')
+        return float(np.mean(scores))
+    except Exception as e:
+        print(f"⚠️ Species classification failed: {e}")
+        return None
+
+
 def evaluate_metrics(emb, lab, src, le_act, name, out_dir):
 
     # === test のみで評価 ===
@@ -399,6 +441,9 @@ def main(run_dir: Path):
                     
                     # ARI, NMI も計算
                     ari, nmi, _ = evaluate_metrics(emb, lab, src, le_act, mp.stem, eval_root)
+                    
+                    # Species 分類精度を計算 (低い = 種情報が除去されている)
+                    species_clf_acc = compute_species_clf_accuracy(emb, df_meta, src)
 
                     res_dict = {
                         "name": mp.stem,
@@ -406,6 +451,7 @@ def main(run_dir: Path):
                         "pooling": POOLING,
                         "ari": ari,
                         "nmi": nmi,
+                        "species_clf_acc": species_clf_acc if species_clf_acc is not None else 0.0,
                     }
                     # stats の内容をマージ (intra_mean, intra_var, inter_mean, inter_var, silhouette)
                     if stats:
@@ -429,7 +475,7 @@ def main(run_dir: Path):
                 with open(md_path, "w", encoding="utf-8") as f:
                     f.write(f"# Evaluation Summary ({test_stem} - {pooling_str})\n\n")
                     # ヘッダー作成
-                    headers = ["Model", "Train Mode", "Pooling", "ARI", "NMI", "Silhouette", 
+                    headers = ["Model", "Train Mode", "Pooling", "ARI", "NMI", "Species Clf Acc ↓", "Silhouette", 
                                "Intra Mean", "Intra Var", "Inter Mean", "Inter Var"]
                     f.write("| " + " | ".join(headers) + " |\n")
                     f.write("|" + "|".join(["---"] * len(headers)) + "|\n")
@@ -438,6 +484,7 @@ def main(run_dir: Path):
                         row_vals = [
                             r['name'], r['train_mode'], str(r['pooling']),
                             f"{r['ari']:.4f}", f"{r['nmi']:.4f}", 
+                            f"{r.get('species_clf_acc', 0):.4f}",
                             f"{r.get('silhouette', 0):.4f}",
                             f"{r.get('intra_mean', 0):.4f}", f"{r.get('intra_var', 0):.4f}",
                             f"{r.get('inter_mean', 0):.4f}", f"{r.get('inter_var', 0):.4f}"

@@ -92,26 +92,19 @@ def main() -> None:
     date_root = out_root / date_dir
     date_root.mkdir(parents=True, exist_ok=True)
 
-    # run_xxx の自動採番
+    # run_xxx_{datatype} の自動採番
+    # datatype は train_label_paths の CSV ファイル名から抽出
+    datatype_suffix = ""
+    if train_label_paths:
+        first_csv = Path(train_label_paths[0])
+        datatype_suffix = "_" + first_csv.stem  # 例: animalkingdom_split
+    
     existing = [p for p in date_root.iterdir() if p.is_dir() and p.name.startswith("run_")]
-    next_idx = max([int(p.name.split("_")[-1]) for p in existing], default=0) + 1
-    results_root = date_root / f"run_{next_idx:03d}"
+    next_idx = max([int(p.name.split("_")[1]) for p in existing if len(p.name.split("_")) >= 2 and p.name.split("_")[1].isdigit()], default=0) + 1
+    results_root = date_root / f"run_{next_idx:03d}{datatype_suffix}"
     results_root.mkdir(parents=True, exist_ok=True)
 
-    # --------------------------------------------
-    # ★ 実験開始前のメモ
-    # --------------------------------------------
-    print("\n🗒️ Let's record your experiment note BEFORE training.")
-    note = input("💬 この実験の目的・メモを書いてください（空Enterでスキップ）: ").strip()
 
-    run_note_path = results_root / "run_note.txt"
-    with open(run_note_path, "w", encoding="utf-8") as f:
-        f.write("=== Experiment Note (Before Training) ===\n")
-        f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Run: {results_root.name}\n\n")
-        f.write(note + "\n" if note else "(No note recorded)\n")
-
-    print(f"✅ Saved initial note → {run_note_path}")
 
     # === Optuna Study ===
     today = datetime.now().strftime("%m%d")
