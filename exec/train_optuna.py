@@ -392,7 +392,9 @@ def _run_one_fold(
         metrics_tr  = _compute_clustering_metrics(inf_models, train_loader, config)
 
         # === main score (Agglomerative) ===
-        score = float(metrics_val["agg_nmi"])  # or agg_ari
+        nmi = float(metrics_val["agg_nmi"])
+        ari = float(metrics_val["agg_ari"])
+        score = 0.5 * nmi + 0.5 * ari  # NMIとARIを均等に重み付け
 
         print(
             f"Fold{fold+1} | "
