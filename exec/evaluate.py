@@ -273,7 +273,7 @@ def compute_species_clf_accuracy(emb, df_meta, src):
     
     # LogisticRegression で交差検証
     try:
-        clf = LogisticRegression(max_iter=500, random_state=42, solver='lbfgs', multi_class='multinomial')
+        clf = LogisticRegression(max_iter=500, random_state=42, solver='lbfgs')
         # 5-fold cross validation
         n_splits = min(5, len(unique_species), len(y) // 2)  # クラス数やサンプル数に応じて調整
         if n_splits < 2:
