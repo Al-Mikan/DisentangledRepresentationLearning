@@ -373,13 +373,20 @@ def get_plot_data():
     # 全点を1つのScatter（またはTrain/Testで2つ）にして、色データを持たせるのが軽量だが
     # 凡例クリックでOn/OffしたいならラベルごとにTraceを作るのが定石
     
+    # Plotly Default Colors (approx)
+    colors = [
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", 
+        "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+        "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5", "#c49c94",
+        "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5"
+    ]
+    
     unique_labels = sorted(list(set(labels)))
     traces = []
     
-    # 色パレット生成 (簡易的にHLSなどで自前生成もできるが、Plotlyのデフォ色が使える)
-    # ここではラベルごとにTraceを作る
-    
-    for lab in unique_labels:
+    for i, lab in enumerate(unique_labels):
+        color = colors[i % len(colors)]
+        
         # Train
         m_tr = (labels == lab) & (sources == "train")
         if np.any(m_tr):
@@ -388,9 +395,14 @@ def get_plot_data():
                 "y": X2d[m_tr, 1].tolist(),
                 "mode": "markers",
                 "name": f"{lab} (train)",
-                "marker": {"symbol": "circle", "size": 8, "opacity": 0.7},
-                "text": video_paths[m_tr].tolist(), # ホバー用
-                "customdata": video_paths[m_tr].tolist(), # クリックイベント用
+                "marker": {
+                    "symbol": "circle", 
+                    "size": 8, 
+                    "opacity": 0.7,
+                    "color": color  # Explicit color
+                },
+                "text": video_paths[m_tr].tolist(),
+                "customdata": video_paths[m_tr].tolist(),
                 "hovertemplate": f"Label: {lab}<br>Source: Train<br>Path: %{{customdata}}<extra></extra>"
             })
 
@@ -406,7 +418,8 @@ def get_plot_data():
                     "symbol": "triangle-up", 
                     "size": 10, 
                     "opacity": 0.9,
-                    "line": {"width": 1, "color": "white"}
+                    "line": {"width": 1, "color": "white"},
+                    "color": color  # Same color as train
                 },
                 "text": video_paths[m_te].tolist(),
                 "customdata": video_paths[m_te].tolist(),
