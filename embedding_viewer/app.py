@@ -397,8 +397,8 @@ def get_plot_data():
                 "name": f"{lab} (train)",
                 "marker": {
                     "symbol": "circle", 
-                    "size": 8, 
-                    "opacity": 0.7,
+                    "size": 7, 
+                    "opacity": 0.6,
                     "color": color  # Explicit color
                 },
                 "text": video_paths[m_tr].tolist(),
@@ -415,10 +415,10 @@ def get_plot_data():
                 "mode": "markers",
                 "name": f"{lab} (test)",
                 "marker": {
-                    "symbol": "triangle-up", 
-                    "size": 10, 
-                    "opacity": 0.9,
-                    "line": {"width": 1, "color": "white"},
+                    "symbol": "diamond",  # triangle-up -> diamond
+                    "size": 12, 
+                    "opacity": 1.0,
+                    "line": {"width": 2, "color": "#333"}, # 黒枠で強調
                     "color": color  # Same color as train
                 },
                 "text": video_paths[m_te].tolist(),
