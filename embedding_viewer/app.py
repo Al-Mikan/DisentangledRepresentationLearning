@@ -432,9 +432,9 @@ def get_plot_data():
             "title": f"{method.upper()} Projection",
             "hovermode": "closest",
             "dragmode": "pan",
-            "plot_bgcolor": "#1e1e1e", # ダークモード背景
-            "paper_bgcolor": "#1e1e1e",
-            "font": {"color": "#e0e0e0"}
+            "plot_bgcolor": "#ffffff", # ライトモード背景
+            "paper_bgcolor": "#ffffff",
+            "font": {"color": "#333333"}
         },
         "metrics": {
             "ari": f"{ari:.4f}" if ari else "N/A",
