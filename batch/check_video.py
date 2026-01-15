@@ -47,6 +47,16 @@ def count_valid_videos(
     print(f"Errors          : {errors}")
     print(f"Valid ratio     : {valid / total:.3f}")
 
+    if "action" in df.columns:
+        actions = df["action"].unique()
+        print(f"\n===== Actions ({len(actions)}) =====")
+        print(df["action"].value_counts().to_string())
+
+    if "species" in df.columns:
+        species = df["species"].unique()
+        print(f"\n===== Species ({len(species)}) =====")
+        print(df["species"].value_counts().to_string())
+
     return invalid_list
 
 if __name__ == "__main__":
