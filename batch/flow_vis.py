@@ -8,16 +8,24 @@ from decord import VideoReader
 from torchvision import transforms
 from types import SimpleNamespace
 
+import os
+import sys
+
+# batch/a.py の場所
 script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# project_root
 project_root = os.path.dirname(script_dir)
-exec_path = os.path.join(project_root, 'exec')
-if exec_path not in sys.path:
-    sys.path.append(exec_path)
+
+# project_root を Python パスに追加
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 
 # RAFT
-from RAFT.core.utils.utils import InputPadder
-from RAFT.core.raft import RAFT
-from RAFT.core.utils.flow_viz import flow_to_image
+from exec.RAFT.core.utils.utils import InputPadder
+from exec.RAFT.core.raft import RAFT
+from exec.RAFT.core.utils.flow_viz import flow_to_image
 
 
 def _select_indices(total, n_save, frames_every=1):
