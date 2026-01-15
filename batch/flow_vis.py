@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import os
 import sys
+import argparse
 
 # batch/a.py の場所
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -154,7 +155,12 @@ def extract_and_save(
 
 # --- 実行例 ---
 if __name__ == "__main__":
-    args = SimpleNamespace(small=False, mixed_precision=True, dropout=0.0, alternate_corr=False)
+    args = argparse.Namespace(
+        small=False,
+        mixed_precision=True,
+        dropout=0.0,
+        alternate_corr=False,
+    )
     raft_model = RAFT(args)
     state_dict = torch.load("./exec/RAFT/models/raft-sintel.pth")
     new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
