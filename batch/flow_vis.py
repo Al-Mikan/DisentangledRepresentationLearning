@@ -23,9 +23,9 @@ if project_root not in sys.path:
 
 
 # RAFT
-from exec.RAFT.core.utils.utils import InputPadder
-from exec.RAFT.core.raft import RAFT
-from exec.RAFT.core.utils.flow_viz import flow_to_image
+from exec.make_vector.RAFT.core.utils.utils import InputPadder
+from exec.make_vector.RAFT.core.raft import RAFT
+from exec.make_vector.RAFT.core.utils.flow_viz import flow_to_image
 
 
 def _select_indices(total, n_save, frames_every=1):
