@@ -64,7 +64,7 @@ def extract_and_save(
     outputs: tuple[str, ...] = ("raw",),  # "raw", "raft", "raft_center" から選ぶ
     frames_resize: tuple[int, int] | None = None,
     batch_size: int = 2,
-    raft_iters: int = 3,
+    raft_iters: int = 12,  # flow_and_x3d_tensor.py と同じ精度設定
 ):
     """
     動画から raw / raft / raft_center を選択保存。
@@ -106,7 +106,10 @@ def extract_and_save(
 
     # (B) RAFT 推論（必要なときだけ）
     if want_raft or want_center:
-        transform = transforms.Compose([transforms.ToTensor()])
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # [-1, 1] 正規化
+        ])
         pairs = [
             (transform(Image.fromarray(vr[i].asnumpy())),
              transform(Image.fromarray(vr[i + 1].asnumpy())))
@@ -144,8 +147,8 @@ def extract_and_save(
             cnt = 0
             for rank, i in enumerate(flow_indices):
                 flow = flow_list[i]
-                mean_flow = np.mean(flow, axis=(0, 1))
-                centered = flow - mean_flow
+                median_flow = np.median(flow, axis=(0, 1))  # median でカメラワーク除去
+                centered = flow - median_flow
                 rgb = flow_to_image(centered)
                 save_path = os.path.join(raftc_dir, f"flow_vis_{rank:03d}.png")
                 cv2.imwrite(save_path, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
