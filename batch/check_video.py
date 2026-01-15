@@ -51,7 +51,7 @@ def count_valid_videos(
 
 if __name__ == "__main__":
     invalid = count_valid_videos(
-    csv_path="./label/train/animalkingdom.csv",
+    csv_path="./label/test/elephant.csv",
     video_root="./",
     min_frames=17,
 )
