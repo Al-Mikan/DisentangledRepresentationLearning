@@ -153,8 +153,8 @@ if __name__ == "__main__":
     raft_model.load_state_dict(new_state_dict)
     raft_model = raft_model.eval().cuda()
 
-    video_path = "./video/animalkingdom/AZNCEFGA.mp4"
-    out_dir = "sample_img"
+    video_path = "./video/elephant/clip_000.mp4"
+    out_dir = "sample_img/elephant"
 
     # 例1: 30フレームごとにサンプリングし、先頭20枚まで raw と flow を保存
     # extract_and_save(
@@ -170,5 +170,5 @@ if __name__ == "__main__":
         video_path, out_dir,
         n_save_png=20,
         frames_every=10,
-        outputs=("raft",),
+        outputs=("raw", "raft", "raft_center"),
     )
