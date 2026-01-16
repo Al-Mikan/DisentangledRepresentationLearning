@@ -447,6 +447,9 @@ def get_plot_data():
         "traces": traces,
         "layout": {
             "title": f"{method.upper()} Projection",
+            "width": 800,
+            "height": 800,
+            "autosize": False,
             "hovermode": "closest",
             "dragmode": "pan",
             "plot_bgcolor": "#ffffff", # ライトモード背景
