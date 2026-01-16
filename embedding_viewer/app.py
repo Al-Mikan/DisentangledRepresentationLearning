@@ -434,7 +434,8 @@ def get_plot_data():
             "dragmode": "pan",
             "plot_bgcolor": "#ffffff", # ライトモード背景
             "paper_bgcolor": "#ffffff",
-            "font": {"color": "#333333"}
+            "font": {"color": "#333333"},
+            "yaxis": {"scaleanchor": "x", "scaleratio": 1} # アスペクト比固定
         },
         "metrics": {
             "ari": f"{ari:.4f}" if ari else "N/A",
