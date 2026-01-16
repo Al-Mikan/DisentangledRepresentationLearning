@@ -374,11 +374,28 @@ def get_plot_data():
     # 凡例クリックでOn/OffしたいならラベルごとにTraceを作るのが定石
     
     # Plotly Default Colors (approx)
+    # Distinct High-Contrast Colors (Kelly's/Glasbey based)
     colors = [
-        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", 
-        "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
-        "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5", "#c49c94",
-        "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5"
+        "#E6194B", # Red
+        "#3CB44B", # Green
+        "#FFE119", # Yellow (bright)
+        "#4363D8", # Blue
+        "#F58231", # Orange
+        "#911EB4", # Purple
+        "#42D4F4", # Cyan
+        "#F032E6", # Magenta
+        "#BFEF45", # Lime
+        "#FABED4", # Pink
+        "#469990", # Teal
+        "#DCBEFF", # Lavender
+        "#9A6324", # Brown
+        "#800000", # Maroon
+        "#AAFFC3", # Mint
+        "#808000", # Olive
+        "#FFD8B1", # Apricot
+        "#000075", # Navy
+        "#808080", # Gray
+        "#000000"  # Black
     ]
     
     unique_labels = sorted(list(set(labels)))
