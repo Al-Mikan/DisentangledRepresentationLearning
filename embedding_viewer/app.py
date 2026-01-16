@@ -446,7 +446,7 @@ def get_plot_data():
     return jsonify({
         "traces": traces,
         "layout": {
-            "title": f"{method.upper()} Projection",
+            # "title": f"{method.upper()} Projection",
             "width": 800,
             "height": 800,
             "autosize": False,
