@@ -278,6 +278,7 @@ def extract_embeddings(df, features, models, params):
 
     return torch.stack(emb_list), np.array(sp_ids), np.array(sources), pd.DataFrame(meta_rows)
 
+from sklearn.metrics import accuracy_score, matthews_corrcoef
 
 # =========================================================
 # Case 1: Pretrained Discriminator Evaluation (Adv ON)
@@ -285,10 +286,11 @@ def extract_embeddings(df, features, models, params):
 def eval_pretrained_discriminator(models, emb, sp_ids, src):
     """
     Adv有効時に、学習済みDiscriminatorを使ってTestデータを評価する。
+    Returns: (acc, mcc)
     """
     if "discriminator" not in models:
         print("⚠️ Pretrained discriminator not found in models.")
-        return None
+        return None, None
         
     disc = models["discriminator"]
     disc.eval()
@@ -297,17 +299,20 @@ def eval_pretrained_discriminator(models, emb, sp_ids, src):
     mask_test = (src == "test") & (sp_ids != -1)
     
     if not np.any(mask_test):
-        return None
+        return None, None
         
     X_test = emb[mask_test].to(DEVICE)
-    y_test = torch.from_numpy(sp_ids[mask_test]).long().to(DEVICE)
+    y_test_cpu = sp_ids[mask_test] # metric計算用にnumpyのまま保持
+    y_test = torch.from_numpy(y_test_cpu).long().to(DEVICE)
     
     with torch.no_grad():
         logits = disc(X_test)
-        pred = logits.argmax(dim=1)
-        acc = (pred == y_test).float().mean().item()
+        pred = logits.argmax(dim=1).cpu().numpy()
         
-    return acc
+    acc = accuracy_score(y_test_cpu, pred)
+    mcc = matthews_corrcoef(y_test_cpu, pred)
+        
+    return acc, mcc
 
 
 # =========================================================
@@ -317,6 +322,7 @@ def train_fresh_discriminator(emb, sp_ids, src, num_species):
     """
     Adv無効時（または比較用）に、新しいDiscriminatorをTrainで学習し、Testで評価する。
     Validation Split + Early Stopping あり。
+    Returns: (acc, mcc)
     """
     # 既知の種のみ対象
     valid_mask = (sp_ids != -1)
@@ -326,12 +332,12 @@ def train_fresh_discriminator(emb, sp_ids, src, num_species):
     
     if not np.any(mask_train) or not np.any(mask_test):
         print("⚠️ Train/Test data missing for probing.")
-        return None
+        return None, None
         
     X_train = emb[mask_train].numpy()
     y_train = sp_ids[mask_train]
     X_test  = emb[mask_test].numpy()
-    y_test  = sp_ids[mask_test]
+    y_test  = sp_ids[mask_test] # numpy
     
     # input_dim
     input_dim = X_train.shape[1]
@@ -357,7 +363,7 @@ def train_fresh_discriminator(emb, sp_ids, src, num_species):
     t_y_val = torch.from_numpy(y_val).long().to(DEVICE)
     
     t_X_test = torch.from_numpy(X_test).float().to(DEVICE)
-    t_y_test = torch.from_numpy(y_test).long().to(DEVICE)
+    # y_test はmetric計算用にnumpyを使うのでTensor化は評価時のみでも良いが、Loop外で定義しておく
 
     ds_train = TensorDataset(t_X_tr, t_y_tr)
     # バッチサイズ調整: データ数が少ない場合は小さくする
@@ -412,10 +418,12 @@ def train_fresh_discriminator(emb, sp_ids, src, num_species):
     net.eval()
     with torch.no_grad():
         logits_test = net(t_X_test)
-        pred_test = logits_test.argmax(dim=1)
-        acc = (pred_test == t_y_test).float().mean().item()
+        pred_test = logits_test.argmax(dim=1).cpu().numpy()
         
-    return acc
+    acc = accuracy_score(y_test, pred_test)
+    mcc = matthews_corrcoef(y_test, pred_test)
+        
+    return acc, mcc
 
 
 # =================================
@@ -516,21 +524,28 @@ def main(run_dir: Path, pooling_mode: str = "both"):
                 acc = None
                 method = ""
 
+                # Adv有効 かつ Discriminatorロード成功時 -> Case 1
                 if adv_mode != "off":
-                    # Case 1: Use Pretrained Discriminator
                     if "discriminator" in models:
-                        acc = eval_pretrained_discriminator(models, emb, sp_ids, src)
+                        acc, mcc = eval_pretrained_discriminator(models, emb, sp_ids, src)
                         method = "pretrained_disc"
                     else:
                         print(f"⚠️ Adv ON ({adv_mode}) but discriminator weights missing in {mp.name} -> Fallback to Fresh Probing.")
                         num_species = len(le_sp.classes_)
-                        acc = train_fresh_discriminator(emb, sp_ids, src, num_species)
+                        acc, mcc = train_fresh_discriminator(emb, sp_ids, src, num_species)
                         method = "fresh_probing"
                 else:
                     # Case 2: Fresh Probing (Train -> Test)
                     num_species = len(le_sp.classes_)
-                    acc = train_fresh_discriminator(emb, sp_ids, src, num_species)
+                    acc, mcc = train_fresh_discriminator(emb, sp_ids, src, num_species)
                     method = "fresh_probing"
+
+                # Random Baseline
+                # Testに含まれるvalidな種数をカウントしても良いが、
+                # ここではLabelEncoderのクラス数(=Trainの種数)を基準とするのが公平
+                # 未知種 (-1) を除いたクラス数
+                num_classes = len(le_sp.classes_)
+                random_acc = 1.0 / num_classes if num_classes > 0 else 0.0
 
                 res_dict = {
                     "name": mp.stem,
@@ -538,6 +553,8 @@ def main(run_dir: Path, pooling_mode: str = "both"):
                     "adversarial": adv_mode,
                     "pooling": POOLING,
                     "species_acc": acc if acc is not None else 0.0,
+                    "species_mcc": mcc if mcc is not None else 0.0,
+                    "random_acc": random_acc,
                     "eval_method": method
                 }
                 results.append(res_dict)
