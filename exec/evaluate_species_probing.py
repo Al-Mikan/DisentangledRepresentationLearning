@@ -463,6 +463,14 @@ def main(run_dir: Path, pooling_mode: str = "both"):
     if not model_paths:
         print("⚠️ No model files found.")
         return
+        
+    # ユーザー要望: dann と off のみ対象にする
+    target_keywords = ["dann", "off"]
+    model_paths = [p for p in model_paths if any(kw in str(p) for kw in target_keywords)]
+    
+    if not model_paths:
+        print(f"⚠️ No models found matching keywords: {target_keywords}")
+        return
 
     for POOLING in POOLING_MODES:
         pooling_str = "pooling_true" if POOLING else "pooling_false"
@@ -491,6 +499,7 @@ def main(run_dir: Path, pooling_mode: str = "both"):
                     continue
 
                 # モデルロード
+                print(f"Processing: {mp.name}")
                 models = build_and_load_model(p, le_sp)
                 if models is None:
                     continue
@@ -509,8 +518,14 @@ def main(run_dir: Path, pooling_mode: str = "both"):
 
                 if adv_mode != "off":
                     # Case 1: Use Pretrained Discriminator
-                    acc = eval_pretrained_discriminator(models, emb, sp_ids, src)
-                    method = "pretrained_disc"
+                    if "discriminator" in models:
+                        acc = eval_pretrained_discriminator(models, emb, sp_ids, src)
+                        method = "pretrained_disc"
+                    else:
+                        print(f"⚠️ Adv ON ({adv_mode}) but discriminator weights missing in {mp.name} -> Fallback to Fresh Probing.")
+                        num_species = len(le_sp.classes_)
+                        acc = train_fresh_discriminator(emb, sp_ids, src, num_species)
+                        method = "fresh_probing"
                 else:
                     # Case 2: Fresh Probing (Train -> Test)
                     num_species = len(le_sp.classes_)
@@ -537,7 +552,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("run_dir", nargs="?", type=str, help="Path to run directory")
-    parser.add_argument("--pooling", type=str, choices=["true", "false", "both"], default="both")
+    parser.add_argument("--pooling", type=str, choices=["true", "false", "both"], default="true")
     args = parser.parse_args()
 
     if args.run_dir:
