@@ -256,11 +256,12 @@ def compute_species_clf_accuracy(emb, df_meta, src):
     
     # species ラベルを取得
     if "species" not in df_meta.columns:
+        print("⚠️ Species information not found in metadata")   
         return None  # species 情報がない
     
     # df_metaはreset_indexされていない可能性があるので、valuesで取得
     df_meta_reset = df_meta.reset_index(drop=True)
-    species_labels = df_meta_reset.loc[mask_test, "species"].values
+    species_labels = df_meta_reset["species"].values[mask_test]
     
     # ユニークなクラス数を確認
     unique_species = np.unique(species_labels)
