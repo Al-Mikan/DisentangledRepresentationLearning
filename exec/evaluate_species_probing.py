@@ -65,10 +65,26 @@ def load_data_for_eval(
     le_act = LabelEncoder().fit(full_df["action"])
     full_df["act_id"] = le_act.transform(full_df["action"])
     
-    # Species Label Encoder (重要: Nan埋めはしない前提だが念のため)
-    # full_df["species"] = full_df["species"].fillna("unknown")
-    le_sp = LabelEncoder().fit(full_df["species"].astype(str))
-    full_df["sp_id"] = le_sp.transform(full_df["species"].astype(str))
+    # Species Label Encoder
+    # 重要: 学習済みモデルとIDを合わせるため、Trainデータに含まれる種のみでEncoderを作る
+    train_species = train_df["species"].dropna().unique()
+    train_species = sorted(train_species) # アルファベット順でソート（一般的なLabelEncoderの挙動）
+    
+    le_sp = LabelEncoder().fit(train_species)
+    
+    # Testデータに含まれる未知の種（Trainにない種）は除外または-1にする必要がある
+    # ここでは一旦全部変換を試みて、未知のものは -1 にする
+    
+    def transform_species_safe(species_series, encoder):
+        # 既知のクラスのみ抽出
+        known_mask = species_series.isin(encoder.classes_)
+        encoded = pd.Series(-1, index=species_series.index)
+        
+        if known_mask.any():
+            encoded.loc[known_mask] = encoder.transform(species_series[known_mask])
+        return encoded.values
+
+    full_df["sp_id"] = transform_species_safe(full_df["species"], le_sp)
 
     features = {
         "vmae": {},
@@ -100,6 +116,10 @@ def load_data_for_eval(
                 if files:
                     return [np.load(p) for p in files]
             return None
+    
+    # フィルタリング: sp_id が -1 (未知の種) のデータは除外しても良いが、
+    # 行数とfeaturesの整合性を保つため、ここでは保持し、評価時に除外する。
+    pass
 
     for _, row in tqdm(full_df.iterrows(), total=len(full_df), desc="Loading features"):
         p = row["video_path"]
@@ -273,8 +293,9 @@ def eval_pretrained_discriminator(models, emb, sp_ids, src):
     disc = models["discriminator"]
     disc.eval()
     
-    # Testデータのみ抽出
-    mask_test = (src == "test")
+    # Testデータ かつ 既知の種(sp_id != -1) のみ抽出
+    mask_test = (src == "test") & (sp_ids != -1)
+    
     if not np.any(mask_test):
         return None
         
@@ -297,8 +318,11 @@ def train_fresh_discriminator(emb, sp_ids, src, num_species):
     Adv無効時（または比較用）に、新しいDiscriminatorをTrainで学習し、Testで評価する。
     Validation Split + Early Stopping あり。
     """
-    mask_train = (src == "train")
-    mask_test  = (src == "test")
+    # 既知の種のみ対象
+    valid_mask = (sp_ids != -1)
+    
+    mask_train = (src == "train") & valid_mask
+    mask_test  = (src == "test") & valid_mask
     
     if not np.any(mask_train) or not np.any(mask_test):
         print("⚠️ Train/Test data missing for probing.")
