@@ -476,7 +476,10 @@ def get_plot_data():
                 "showgrid": False,      # 格子線非表示
                 "zeroline": False,      # ゼロ線非表示
                 "showticklabels": False, # 目盛りラベル非表示
-                "showline": False,      # 軸線非表示
+                "showline": True,       # 軸線（枠）は表示
+                "mirror": True,         # 上側にも線を表示して枠にする
+                "linecolor": "#333",    # 線の色
+                "linewidth": 1,         # 線の太さ
                 "range": [-1.1, 1.1],   # 範囲固定
             },
             "yaxis": {
@@ -485,7 +488,10 @@ def get_plot_data():
                 "showgrid": False,      # 格子線非表示
                 "zeroline": False,      # ゼロ線非表示
                 "showticklabels": False, # 目盛りラベル非表示
-                "showline": False,      # 軸線非表示
+                "showline": True,       # 軸線（枠）は表示
+                "mirror": True,         # 右側にも線を表示して枠にする
+                "linecolor": "#333",    # 線の色
+                "linewidth": 1,         # 線の太さ
                 "range": [-1.1, 1.1],   # 範囲固定
             },
         },
