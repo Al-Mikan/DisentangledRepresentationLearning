@@ -365,6 +365,23 @@ def get_plot_data():
         )
         X2d = reducer.fit_transform(X)
 
+    # 座標を正規化 (アスペクト比を維持しつつ -1〜1 近辺に収める)
+    X2d_min = X2d.min(axis=0)
+    X2d_max = X2d.max(axis=0)
+    
+    # 中心を原点に移動
+    center = (X2d_max + X2d_min) / 2
+    X2d_centered = X2d - center
+    
+    # 最大の幅でスケーリング (縦横比維持)
+    max_range = (X2d_max - X2d_min).max()
+    if max_range == 0:
+        max_range = 1.0
+        
+    # -0.9 〜 0.9 程度に収まるようにスケール (余白確保)
+    scale_factor = 1.8 / max_range
+    X2d = X2d_centered * scale_factor
+
     # ARI / NMI 計算
     ari, nmi = compute_ari_nmi(X, labels)
 
@@ -455,7 +472,22 @@ def get_plot_data():
             "plot_bgcolor": "#ffffff", # ライトモード背景
             "paper_bgcolor": "#ffffff",
             "font": {"color": "#333333"},
-            "yaxis": {"scaleanchor": "x", "scaleratio": 1} # アスペクト比固定
+            "xaxis": {
+                "showgrid": False,      # 格子線非表示
+                "zeroline": False,      # ゼロ線非表示
+                "showticklabels": False, # 目盛りラベル非表示
+                "showline": False,      # 軸線非表示
+                "range": [-1.1, 1.1],   # 範囲固定
+            },
+            "yaxis": {
+                "scaleanchor": "x", 
+                "scaleratio": 1,        # アスペクト比固定
+                "showgrid": False,      # 格子線非表示
+                "zeroline": False,      # ゼロ線非表示
+                "showticklabels": False, # 目盛りラベル非表示
+                "showline": False,      # 軸線非表示
+                "range": [-1.1, 1.1],   # 範囲固定
+            },
         },
         "metrics": {
             "ari": f"{ari:.4f}" if ari else "N/A",
