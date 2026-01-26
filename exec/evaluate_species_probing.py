@@ -174,17 +174,27 @@ def build_and_load_model(params: Dict, le_sp: LabelEncoder):
     
     # 3. Discriminator (Adv ONの場合のみロード)
     if params.get("adversarial", "off") != "off":
-        num_species = len(le_sp.classes_)
-        disc = SpeciesDiscriminator(feature_dim, num_species).to(DEVICE).eval()
-        
         disc_state = {k.replace("discriminator.", ""): v
                       for k, v in state_dict.items()
                       if k.startswith("discriminator.")}
                       
         # Discriminatorの重みがあるか確認
         if disc_state:
-            disc.load_state_dict(disc_state, strict=False)
-            models["discriminator"] = disc
+            # Checkpointからクラス数(出力次元)を推定
+            # SpeciesDiscriminator の最後は "classifier.4.weight"
+            weight_key = "classifier.4.weight"
+            bias_key = "classifier.4.bias"
+            
+            if weight_key in disc_state:
+                ckpt_num_species = disc_state[weight_key].shape[0]
+                # print(f"ℹ️ Loaded discriminator with {ckpt_num_species} species classes (Current data: {len(le_sp.classes_)})")
+                
+                # Checkpointに合わせてモデル構築
+                disc = SpeciesDiscriminator(feature_dim, ckpt_num_species).to(DEVICE).eval()
+                disc.load_state_dict(disc_state, strict=False)
+                models["discriminator"] = disc
+            else:
+                print(f"⚠️ Warning: Discriminator weights found but '{weight_key}' is missing. Skipping.")
         else:
             print("⚠️ Warning: adversarial is ON but no discriminator weights found.")
 
