@@ -256,16 +256,20 @@ def compute_species_clf_accuracy(emb, df_meta, src):
     
     # species ラベルを取得
     if "species" not in df_meta.columns:
-        print("⚠️ Species information not found in metadata")   
+        print("⚠️ Species information not found in metadata columns:", df_meta.columns)   
         return None  # species 情報がない
     
     # df_metaはreset_indexされていない可能性があるので、valuesで取得
     df_meta_reset = df_meta.reset_index(drop=True)
     species_labels = df_meta_reset["species"].values[mask_test]
     
+    # デバッグ: ラベルの中身確認
+    # print(f"DEBUG: species_labels sample: {species_labels[:5]}")
+    
     # ユニークなクラス数を確認
     unique_species = np.unique(species_labels)
     if len(unique_species) < 2:
+        print(f"⚠️ Not enough unique species for classification: {unique_species}")
         return None  # 分類できない
     
     # LabelEncoding
@@ -279,13 +283,23 @@ def compute_species_clf_accuracy(emb, df_meta, src):
         from collections import Counter
         class_counts = Counter(y)
         min_class_count = min(class_counts.values())
+        
+        # クラスごとのサンプル数が少なすぎる場合の警告
+        if min_class_count < 2:
+             print(f"⚠️ Some classes have too few samples ({min_class_count}) for CV. Counts: {class_counts}")
+             # それでも強引にstratified k-foldはできないので、n_splitsを計算
+        
         n_splits = min(5, len(unique_species), min_class_count, len(y) // 2)
         if n_splits < 2:
+            print(f"⚠️ Not enough splits possible: n_splits={n_splits} (min_class_count={min_class_count})")
             return None
+            
         scores = cross_val_score(clf, X, y, cv=n_splits, scoring='accuracy')
         return float(np.mean(scores))
     except Exception as e:
-        print(f"⚠️ Species classification failed: {e}")
+        print(f"⚠️ Species classification failed with Exception: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -335,7 +349,7 @@ def save_jsonl(path: Path, df, labels, sources, embeddings):
 # =================================
 # メイン
 # =================================
-def main(run_dir: Path):
+def main(run_dir: Path, pooling_mode: str = "both"):
     setup_environment()
 
     run_dir = Path(run_dir)
@@ -356,8 +370,14 @@ def main(run_dir: Path):
 
     # デフォルト値
     DATATYPE = params.get("datatype", "animalkingdom")
-    # POOLINGは両方試す
-    POOLING_MODES = [True, False]
+    
+    # pooling_mode に応じて POOLING_MODES を決定
+    if pooling_mode == "true":
+        POOLING_MODES = [True]
+    elif pooling_mode == "false":
+        POOLING_MODES = [False]
+    else:
+        POOLING_MODES = [True, False]
 
     # train_label_paths / test_label_paths を config から取得
     train_label_paths = params.get("train_label_paths", None)
@@ -577,11 +597,17 @@ def analyze_alpha_logs(run_dir: Path, out_dir: Path):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        main(Path(sys.argv[1]))
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("run_dir", nargs="?", type=str, help="Path to run directory")
+    parser.add_argument("--pooling", type=str, choices=["true", "false", "both"], default="both", help="Pooling mode to evaluate")
+    args = parser.parse_args()
+
+    if args.run_dir:
+        main(Path(args.run_dir), pooling_mode=args.pooling)
     else:
         dirs = [d for d in Path("train_result").glob("**/run_*") if d.is_dir()]
         dirs = sorted(dirs, reverse=True)
         if len(dirs) == 0:
             raise RuntimeError("No run_* directory found under train_result/")
-        main(dirs[0])
+        main(dirs[0], pooling_mode=args.pooling)
