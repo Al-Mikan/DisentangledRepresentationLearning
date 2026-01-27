@@ -14,7 +14,7 @@ import torch.nn as nn
 
 from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import AgglomerativeClustering
-from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, silhouette_score, accuracy_score
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, silhouette_score, accuracy_score, confusion_matrix
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 
