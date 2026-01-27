@@ -242,6 +242,62 @@ def extract_embeddings(df, features, models, params):
     return torch.stack(emb_list), np.array(labels), np.array(sources), pd.DataFrame(meta_rows)
 
 
+# =========================================================
+# Confusion Matrix 保存関数 (Species/Action 共通)
+# =========================================================
+def save_confusion_matrix(y_true, y_pred, labels, output_dir, model_name, prefix="action_"):
+    """
+    混合行列を計算し、CSVと画像として保存する。
+    """
+    labels = list(labels) # 念のためlist化
+    cm = confusion_matrix(y_true, y_pred, labels=range(len(labels)))
+    
+    # CSV保存
+    cm_df = pd.DataFrame(cm, index=labels, columns=labels)
+    cm_csv_path = output_dir / f"{prefix}confusion_matrix_{model_name}.csv"
+    cm_df.to_csv(cm_csv_path)
+    
+    # 画像保存
+    plt.figure(figsize=(20, 20))
+    sns.heatmap(cm, annot=False, fmt='d', cmap='Blues')
+    plt.title(f"Confusion Matrix: {model_name}")
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    
+    cm_img_path = output_dir / f"{prefix}confusion_matrix_{model_name}.png"
+    plt.savefig(cm_img_path)
+    plt.close()
+
+
+def evaluate_action_classification(emb, lab, src, le_act):
+    """
+    Action分類精度を計算する (LogisticRegression)
+    Returns: (acc, y_true, y_pred)
+    """
+    mask_train = (src == "train")
+    mask_test  = (src == "test")
+    
+    if not np.any(mask_train) or not np.any(mask_test):
+        print("⚠️ Train/Test split missing for action classification.")
+        return None, None, None
+
+    X_train = emb[mask_train].numpy() if hasattr(emb[mask_train], 'numpy') else emb[mask_train]
+    y_train = lab[mask_train]
+    X_test  = emb[mask_test].numpy() if hasattr(emb[mask_test], 'numpy') else emb[mask_test]
+    y_test  = lab[mask_test]
+
+    try:
+        clf = LogisticRegression(max_iter=1000, random_state=42, solver='lbfgs')
+        clf.fit(X_train, y_train)
+        pred = clf.predict(X_test)
+        
+        acc = accuracy_score(y_test, pred)
+        return acc, y_test, pred
+    except Exception as e:
+        print(f"⚠️ Action classification failed: {e}")
+        return None, None, None
+
+
 # =================================
 # 評価 (t-SNE/UMAP は削除)
 # =================================
@@ -312,7 +368,7 @@ def evaluate_metrics(emb, lab, src, le_act, name, out_dir):
 
     n_clusters = len(np.unique(y_test))
     if n_clusters < 2:
-        return 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0 # Added 0.0 for act_acc
 
     clustering = AgglomerativeClustering(
         n_clusters=n_clusters, metric="cosine", linkage="average"
@@ -326,7 +382,16 @@ def evaluate_metrics(emb, lab, src, le_act, name, out_dir):
     except:
         sil = 0.0
     
-    return ari, nmi, sil
+    # Action Classification (Supervised)
+    act_acc, y_true, y_pred = evaluate_action_classification(emb, lab, src, le_act)
+    
+    # Save Confusion Matrix
+    if y_true is not None and y_pred is not None:
+        cm_dir = out_dir / "plots"
+        cm_dir.mkdir(parents=True, exist_ok=True)
+        save_confusion_matrix(y_true, y_pred, le_act.classes_, cm_dir, name, prefix="action_")
+    
+    return ari, nmi, sil, act_acc
 
 
 # =================================
@@ -464,7 +529,7 @@ def main(run_dir: Path, pooling_mode: str = "both"):
                     stats = compute_distance_stats_epoch(emb_tensor, lab_tensor)
                     
                     # ARI, NMI も計算
-                    ari, nmi, _ = evaluate_metrics(emb, lab, src, le_act, mp.stem, eval_root)
+                    ari, nmi, _, act_acc = evaluate_metrics(emb, lab, src, le_act, mp.stem, eval_root)
                     
                     # Species 分類精度を計算 (低い = 種情報が除去されている)
                     species_clf_acc = compute_species_clf_accuracy(emb, df_meta, src)
@@ -473,6 +538,7 @@ def main(run_dir: Path, pooling_mode: str = "both"):
                         "name": mp.stem,
                         "train_mode": p.get("train_mode"),
                         "pooling": POOLING,
+                        "act_acc": act_acc if act_acc is not None else 0.0,
                         "ari": ari,
                         "nmi": nmi,
                         "species_clf_acc": species_clf_acc if species_clf_acc is not None else 0.0,
@@ -499,7 +565,7 @@ def main(run_dir: Path, pooling_mode: str = "both"):
                 with open(md_path, "w", encoding="utf-8") as f:
                     f.write(f"# Evaluation Summary ({test_stem} - {pooling_str})\n\n")
                     # ヘッダー作成
-                    headers = ["Model", "Train Mode", "Pooling", "ARI", "NMI", "Species Clf Acc ↓", "Silhouette", 
+                    headers = ["Model", "Train Mode", "Pooling", "Action Acc", "ARI", "NMI", "Species Clf Acc ↓", "Silhouette", 
                                "Intra Mean", "Intra Var", "Inter Mean", "Inter Var"]
                     f.write("| " + " | ".join(headers) + " |\n")
                     f.write("|" + "|".join(["---"] * len(headers)) + "|\n")
@@ -507,6 +573,7 @@ def main(run_dir: Path, pooling_mode: str = "both"):
                     for r in results:
                         row_vals = [
                             r['name'], r['train_mode'], str(r['pooling']),
+                            f"{r.get('act_acc', 0):.4f}", 
                             f"{r['ari']:.4f}", f"{r['nmi']:.4f}", 
                             f"{r.get('species_clf_acc', 0):.4f}",
                             f"{r.get('silhouette', 0):.4f}",
@@ -600,7 +667,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("run_dir", nargs="?", type=str, help="Path to run directory")
-    parser.add_argument("--pooling", type=str, choices=["true", "false", "both"], default="both", help="Pooling mode to evaluate")
+    parser.add_argument("--pooling", type=str, choices=["true", "false", "both"], default="true", help="Pooling mode to evaluate")
     args = parser.parse_args()
 
     if args.run_dir:
