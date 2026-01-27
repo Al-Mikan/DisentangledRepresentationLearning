@@ -278,7 +278,35 @@ def extract_embeddings(df, features, models, params):
 
     return torch.stack(emb_list), np.array(sp_ids), np.array(sources), pd.DataFrame(meta_rows)
 
-from sklearn.metrics import accuracy_score, matthews_corrcoef
+from sklearn.metrics import accuracy_score, matthews_corrcoef, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# =========================================================
+# Confusion Matrix 保存関数
+# =========================================================
+def save_confusion_matrix(y_true, y_pred, labels, output_dir, model_name):
+    """
+    混合行列を計算し、CSVと画像として保存する。
+    """
+    cm = confusion_matrix(y_true, y_pred, labels=range(len(labels)))
+    
+    # CSV保存
+    cm_df = pd.DataFrame(cm, index=labels, columns=labels)
+    cm_csv_path = output_dir / f"confusion_matrix_{model_name}.csv"
+    cm_df.to_csv(cm_csv_path)
+    
+    # 画像保存 (クラス数が多いので巨大になるが、一応保存)
+    plt.figure(figsize=(20, 20))
+    sns.heatmap(cm, annot=False, fmt='d', cmap='Blues')
+    plt.title(f"Confusion Matrix: {model_name}")
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    
+    cm_img_path = output_dir / f"confusion_matrix_{model_name}.png"
+    plt.savefig(cm_img_path)
+    plt.close()
+
 
 # =========================================================
 # Case 1: Pretrained Discriminator Evaluation (Adv ON)
@@ -286,11 +314,11 @@ from sklearn.metrics import accuracy_score, matthews_corrcoef
 def eval_pretrained_discriminator(models, emb, sp_ids, src):
     """
     Adv有効時に、学習済みDiscriminatorを使ってTestデータを評価する。
-    Returns: (acc, mcc)
+    Returns: (acc, mcc, y_true, y_pred)
     """
     if "discriminator" not in models:
         print("⚠️ Pretrained discriminator not found in models.")
-        return None, None
+        return None, None, None, None
         
     disc = models["discriminator"]
     disc.eval()
@@ -299,7 +327,7 @@ def eval_pretrained_discriminator(models, emb, sp_ids, src):
     mask_test = (src == "test") & (sp_ids != -1)
     
     if not np.any(mask_test):
-        return None, None
+        return None, None, None, None
         
     X_test = emb[mask_test].to(DEVICE)
     y_test_cpu = sp_ids[mask_test] # metric計算用にnumpyのまま保持
@@ -312,7 +340,7 @@ def eval_pretrained_discriminator(models, emb, sp_ids, src):
     acc = accuracy_score(y_test_cpu, pred)
     mcc = matthews_corrcoef(y_test_cpu, pred)
         
-    return acc, mcc
+    return acc, mcc, y_test_cpu, pred
 
 
 # =========================================================
@@ -322,7 +350,7 @@ def train_fresh_discriminator(emb, sp_ids, src, num_species):
     """
     Adv無効時（または比較用）に、新しいDiscriminatorをTrainで学習し、Testで評価する。
     Validation Split + Early Stopping あり。
-    Returns: (acc, mcc)
+    Returns: (acc, mcc, y_true, y_pred)
     """
     # 既知の種のみ対象
     valid_mask = (sp_ids != -1)
@@ -332,7 +360,7 @@ def train_fresh_discriminator(emb, sp_ids, src, num_species):
     
     if not np.any(mask_train) or not np.any(mask_test):
         print("⚠️ Train/Test data missing for probing.")
-        return None, None
+        return None, None, None, None
         
     X_train = emb[mask_train].numpy()
     y_train = sp_ids[mask_train]
@@ -423,7 +451,7 @@ def train_fresh_discriminator(emb, sp_ids, src, num_species):
     acc = accuracy_score(y_test, pred_test)
     mcc = matthews_corrcoef(y_test, pred_test)
         
-    return acc, mcc
+    return acc, mcc, y_test, pred_test
 
 
 # =================================
@@ -525,25 +553,30 @@ def main(run_dir: Path, pooling_mode: str = "both"):
                 method = ""
 
                 # Adv有効 かつ Discriminatorロード成功時 -> Case 1
+                y_true, y_pred = None, None
+                
                 if adv_mode != "off":
                     if "discriminator" in models:
-                        acc, mcc = eval_pretrained_discriminator(models, emb, sp_ids, src)
+                        acc, mcc, y_true, y_pred = eval_pretrained_discriminator(models, emb, sp_ids, src)
                         method = "pretrained_disc"
                     else:
                         print(f"⚠️ Adv ON ({adv_mode}) but discriminator weights missing in {mp.name} -> Fallback to Fresh Probing.")
                         num_species = len(le_sp.classes_)
-                        acc, mcc = train_fresh_discriminator(emb, sp_ids, src, num_species)
+                        acc, mcc, y_true, y_pred = train_fresh_discriminator(emb, sp_ids, src, num_species)
                         method = "fresh_probing"
                 else:
                     # Case 2: Fresh Probing (Train -> Test)
                     num_species = len(le_sp.classes_)
-                    acc, mcc = train_fresh_discriminator(emb, sp_ids, src, num_species)
+                    acc, mcc, y_true, y_pred = train_fresh_discriminator(emb, sp_ids, src, num_species)
                     method = "fresh_probing"
+                
+                # CM保存
+                if y_true is not None and y_pred is not None:
+                    cm_dir = eval_root / "plots"
+                    cm_dir.mkdir(parents=True, exist_ok=True)
+                    save_confusion_matrix(y_true, y_pred, le_sp.classes_, cm_dir, mp.stem)
 
                 # Random Baseline
-                # Testに含まれるvalidな種数をカウントしても良いが、
-                # ここではLabelEncoderのクラス数(=Trainの種数)を基準とするのが公平
-                # 未知種 (-1) を除いたクラス数
                 num_classes = len(le_sp.classes_)
                 random_acc = 1.0 / num_classes if num_classes > 0 else 0.0
 
