@@ -524,6 +524,12 @@ def save_alpha_epoch(alpha_data: Any, epoch: int, config: Dict[str, Any], trial:
             hist_path = alpha_tmp_dir / f"alpha_hist_{suffix}.png"
             plt.savefig(hist_path)
             plt.close()
+
+            # wandb logging: Log as native Histogram AND Image
+            wandb.log({
+                f"alpha_hist_img/{suffix}": wandb.Image(str(hist_path)),
+                f"alpha_dist/{suffix}": wandb.Histogram(alpha_arr)
+            }, step=epoch)
         except Exception as e:
             print(f"⚠️ Failed to save alpha histogram: {e}")
 
