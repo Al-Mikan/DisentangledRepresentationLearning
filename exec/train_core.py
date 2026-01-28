@@ -14,6 +14,8 @@ from tqdm import tqdm
 from sklearn.preprocessing import LabelEncoder
 from sklearn.cluster import KMeans
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, silhouette_score
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from utils import set_seed
 from utils import MAE_Dataset,X3D_Dataset, X3D_MAE_Dataset
@@ -465,26 +467,73 @@ def train_step(
     return metrics, alpha_np
 
 
-def save_alpha_epoch(alpha_parts: List[np.ndarray], epoch: int, config: Dict[str, Any], trial: optuna.trial.Trial, results_root: Optional[Path], is_ablation: bool) -> None:
-    """gated モード時に収集した α を一時保存する。アブレーション時はスキップ。"""
-    if config.get("train_mode") != "gated" or not alpha_parts or is_ablation:
+def save_alpha_epoch(alpha_data: Any, epoch: int, config: Dict[str, Any], trial: optuna.trial.Trial, results_root: Optional[Path], is_ablation: bool, is_best: bool = False) -> None:
+    """gated モード時に収集した α を保存する。Ablation時はEpoch0とBestのみヒストグラム保存。"""
+    if config.get("train_mode") != "gated":
         return
-    try:
-        alpha_epoch = np.concatenate(alpha_parts, axis=0)
-    except Exception:
-        print("⚠️ Failed to concatenate alpha parts; skip saving.")
+
+    # Concatenate if list
+    if isinstance(alpha_data, list):
+        if not alpha_data: return
+        try:
+            alpha_arr = np.concatenate(alpha_data, axis=0)
+        except Exception:
+            return
+    else:
+        alpha_arr = alpha_data
+
+    # 保存判定
+    should_save = False
+    save_hist_only = False
+
+    if is_ablation:
+        # Ablation: Epoch 0 or Best only
+        if epoch == 0 or is_best:
+            should_save = True
+            save_hist_only = True
+    else:
+        # Normal: Save standard npy (keep original behavior if needed, or update)
+        # Original was saving per epoch for non-ablation
+        should_save = True
+    
+    if not should_save:
         return
+
+    # Create directory
     if results_root is not None:
-        alpha_tmp_dir = Path(results_root) / 'alpha_logs_tmp' / f"trial_{trial.number:03d}"
+        alpha_tmp_dir = Path(results_root) / 'alpha_logs' / f"trial_{trial.number:03d}"
     else:
         date_dir = datetime.now().strftime("%Y-%m-%d")
-        alpha_tmp_dir = Path('./train_result') / date_dir / 'alpha_logs_tmp' / f"trial_{trial.number:03d}"
+        alpha_tmp_dir = Path('./train_result') / date_dir / 'alpha_logs' / f"trial_{trial.number:03d}"
     alpha_tmp_dir.mkdir(parents=True, exist_ok=True)
-    alpha_tmp_path = alpha_tmp_dir / f"alpha_trial{trial.number:03d}_epoch{epoch:03d}.npy"
-    try:
-        np.save(str(alpha_tmp_path), alpha_epoch)
-    except Exception as e:
-        print(f"⚠️ Failed to save temp alpha for trial #{trial.number}, epoch {epoch}: {e}")
+
+    # 1. Save Histogram (png) - Mainly for Ablation
+    if save_hist_only or is_best or epoch == 0:
+        try:
+            plt.figure(figsize=(8, 5))
+            plt.hist(alpha_arr.flatten(), bins=50, range=(0, 1), alpha=0.7, color='skyblue', edgecolor='black')
+            title_str = f"Alpha Dist - Trial {trial.number} - Epoch {epoch}"
+            if is_best: title_str += " (BEST)"
+            plt.title(title_str)
+            plt.xlabel("Alpha")
+            plt.ylabel("Count")
+            plt.xlim(0, 1)
+            plt.grid(True, alpha=0.3)
+            
+            suffix = "best" if is_best else f"epoch{epoch:03d}"
+            hist_path = alpha_tmp_dir / f"alpha_hist_{suffix}.png"
+            plt.savefig(hist_path)
+            plt.close()
+        except Exception as e:
+            print(f"⚠️ Failed to save alpha histogram: {e}")
+
+    # 2. Save Raw NPY (if not hist only)
+    if not save_hist_only:
+        alpha_tmp_path = alpha_tmp_dir / f"alpha_trial{trial.number:03d}_epoch{epoch:03d}.npy"
+        try:
+            np.save(str(alpha_tmp_path), alpha_arr)
+        except Exception as e:
+            print(f"⚠️ Failed to save alpha npy: {e}")
 
 
 def evaluate_model(
@@ -780,6 +829,10 @@ def train_model(
                 "alpha/max":  float(alpha_epoch.max()),
             }, step=epoch)
 
+            # Save alpha histogram (Epoch 0)
+            if epoch == 0:
+                save_alpha_epoch(alpha_epoch, epoch, config, trial, results_root, is_ablation, is_best=False)
+
 
         if fold_idx == log_fold:
             wandb.log(log_dict, step=epoch)
@@ -807,6 +860,11 @@ def train_model(
                 trial_number=trial.number,
                 prefix="valid_table",
             )
+
+            # Save alpha histogram (Best Epoch)
+            if alpha_parts:
+                 # alpha_parts is from the current epoch, which is effectively the best epoch so far if we are here
+                save_alpha_epoch(alpha_parts, epoch, config, trial, results_root, is_ablation, is_best=True)
         else:
             no_improve += 1
             if no_improve >= EARLY_STOP_PATIENCE:
