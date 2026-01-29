@@ -464,15 +464,19 @@ def train_step(
     main_opt.step()
 
     alpha_np = alpha.detach().cpu().numpy() if alpha is not None else None
-    return metrics, alpha_np
+    action_np = a.detach().cpu().numpy()
+    return metrics, alpha_np, action_np
 
 
-def save_alpha_epoch(alpha_data: Any, epoch: int, config: Dict[str, Any], trial: optuna.trial.Trial, results_root: Optional[Path], is_ablation: bool, is_best: bool = False) -> None:
+def save_alpha_epoch(alpha_data: Any, epoch: int, config: Dict[str, Any], trial: optuna.trial.Trial, results_root: Optional[Path], is_ablation: bool, is_best: bool = False, action_data: Any = None) -> None:
     """gated モード時に収集した α を保存する。Ablation時はEpoch0とBestのみヒストグラム保存。"""
+    print(f"[DEBUG] save_alpha_epoch called. Mode: {config.get('train_mode')}, is_ablation: {is_ablation}, epoch: {epoch}")
     if config.get("train_mode") != "gated":
+        print("[DEBUG] save_alpha_epoch skipped (not gated)")
         return
 
-    # Concatenate if list
+    # Concatenate alpha if list
+    alpha_arr = None
     if isinstance(alpha_data, list):
         if not alpha_data: return
         try:
@@ -481,6 +485,18 @@ def save_alpha_epoch(alpha_data: Any, epoch: int, config: Dict[str, Any], trial:
             return
     else:
         alpha_arr = alpha_data
+        
+    # Concatenate actions if list
+    action_arr = None
+    if action_data is not None:
+        if isinstance(action_data, list):
+            if action_data:
+                try:
+                     action_arr = np.concatenate(action_data, axis=0)
+                except Exception:
+                     pass
+        else:
+            action_arr = action_data
 
     # 保存判定
     should_save = False
@@ -509,6 +525,9 @@ def save_alpha_epoch(alpha_data: Any, epoch: int, config: Dict[str, Any], trial:
 
     # 1. Save Histogram (png) - Mainly for Ablation
     if save_hist_only or is_best or epoch == 0:
+        suffix = "best" if is_best else f"epoch{epoch:03d}"
+        
+        # --- (A) Global Histogram ---
         try:
             plt.figure(figsize=(8, 5))
             plt.hist(alpha_arr.flatten(), bins=50, range=(0, 1), alpha=0.7, color='skyblue', edgecolor='black')
@@ -520,16 +539,42 @@ def save_alpha_epoch(alpha_data: Any, epoch: int, config: Dict[str, Any], trial:
             plt.xlim(0, 1)
             plt.grid(True, alpha=0.3)
             
-            suffix = "best" if is_best else f"epoch{epoch:03d}"
             hist_path = alpha_tmp_dir / f"alpha_hist_{suffix}.png"
             plt.savefig(hist_path)
             plt.close()
 
             # wandb logging: Log as native Histogram AND Image
-            wandb.log({
+            print(f"[DEBUG] Attempting wandb.log for epoch {epoch}")
+            log_payload = {
                 f"alpha_hist_img/{suffix}": wandb.Image(str(hist_path)),
                 f"alpha_dist/{suffix}": wandb.Histogram(alpha_arr)
-            }, step=epoch)
+            }
+            
+            # --- (B) Per-Action Histogram (if action_arr provided) ---
+            if action_arr is not None and len(action_arr) == len(alpha_arr):
+                unique_actions = np.unique(action_arr)
+                # Max 20 actions to avoid explosion
+                for act_id in unique_actions[:20]: 
+                    mask = (action_arr == act_id)
+                    alpha_act = alpha_arr[mask]
+                    
+                    if len(alpha_act) > 0:
+                        plt.figure(figsize=(6, 4))
+                        plt.hist(alpha_act.flatten(), bins=50, range=(0, 1), alpha=0.6, color='orange', edgecolor='black')
+                        plt.title(f"Alpha Dist - Act {act_id} - {suffix}")
+                        plt.xlim(0, 1)
+                        plt.grid(True, alpha=0.3)
+                        
+                        act_hist_path = alpha_tmp_dir / f"alpha_hist_{suffix}_act{act_id}.png"
+                        plt.savefig(act_hist_path)
+                        plt.close()
+                        
+                        log_payload[f"alpha_hist_img_act/{suffix}_act{act_id}"] = wandb.Image(str(act_hist_path))
+                        # Optional: Native histogram per action might clutter UI heavily, use image for now or specific key
+                        # log_payload[f"alpha_dist_act/{suffix}_act{act_id}"] = wandb.Histogram(alpha_act)
+
+            wandb.log(log_payload, step=epoch)
+            print(f"[DEBUG] wandb.log called for epoch {epoch}")
         except Exception as e:
             print(f"⚠️ Failed to save alpha histogram: {e}")
 
@@ -759,13 +804,14 @@ def train_model(
     for epoch in range(max_epochs):
         epoch_metrics = defaultdict(list)
         alpha_parts = []
+        action_parts = []
 
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1:03d}"):
 
             p = current_step / total_steps
             lambda_p = get_dann_lambda(p)
 
-            metrics, alpha_np = train_step(
+            metrics, alpha_np, action_np = train_step(
                 models, batch, loss_fn, miner,
                 optimizers, config, le_sp, lambda_p, species_prior, current_step, epoch
             )
@@ -775,6 +821,7 @@ def train_model(
 
             if alpha_np is not None:
                 alpha_parts.append(alpha_np)
+                action_parts.append(action_np)
 
             current_step += 1
 
@@ -837,7 +884,7 @@ def train_model(
 
             # Save alpha histogram (Epoch 0)
             if epoch == 0:
-                save_alpha_epoch(alpha_epoch, epoch, config, trial, results_root, is_ablation, is_best=False)
+                save_alpha_epoch(alpha_epoch, epoch, config, trial, results_root, is_ablation, is_best=False, action_data=action_parts)
 
 
         if fold_idx == log_fold:
@@ -870,7 +917,7 @@ def train_model(
             # Save alpha histogram (Best Epoch)
             if alpha_parts:
                  # alpha_parts is from the current epoch, which is effectively the best epoch so far if we are here
-                save_alpha_epoch(alpha_parts, epoch, config, trial, results_root, is_ablation, is_best=True)
+                save_alpha_epoch(alpha_parts, epoch, config, trial, results_root, is_ablation, is_best=True, action_data=action_parts)
         else:
             no_improve += 1
             if no_improve >= EARLY_STOP_PATIENCE:
