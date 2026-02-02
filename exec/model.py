@@ -138,6 +138,41 @@ class GatedFusion(nn.Module):
                     nn.init.constant_(m.bias, 0.0)
 
 
+class ConcatFusion(nn.Module):
+    """
+    単純な Concat Fusion（ベースライン）。
+    2つの特徴を連結して Linear で射影するだけ。
+    GatedFusion との比較用。
+    """
+    def __init__(self, d_x3d=2048, d_vmae=768, d_hidden=512):
+        super().__init__()
+        
+        # 入力正規化 (Pre-Norm)
+        self.in_ln_x3d  = nn.LayerNorm(d_x3d)
+        self.in_ln_vmae = nn.LayerNorm(d_vmae)
+        
+        # 連結後に射影
+        self.fc = nn.Linear(d_x3d + d_vmae, d_hidden, bias=False)
+        self._init_weights()
+
+    def forward(self, x3d, vmae):
+        # 入力を正規化
+        x3d  = self.in_ln_x3d(x3d)
+        vmae = self.in_ln_vmae(vmae)
+        
+        # 単純に連結して射影
+        concat = torch.cat([x3d, vmae], dim=-1)
+        fused = self.fc(concat)
+
+        # alpha は None を返す（GatedFusion との互換性のため）
+        return fused, None
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_uniform_(m.weight, nonlinearity="linear")
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0)
 
 
 class ActionClassifier(nn.Module):

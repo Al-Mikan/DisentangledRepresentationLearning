@@ -57,6 +57,7 @@ env/
 /train_result
 /x3d_vector/
 /x3d_vector_centered/
+/exec/frame/
 
 # Exec subfolder caches / externals
 /exec/__pycache__/

@@ -21,7 +21,7 @@ from utils import set_seed
 from utils import MAE_Dataset,X3D_Dataset, X3D_MAE_Dataset
 from model import (
     ActionClassifier, ActionMLPNet,
-    SpeciesDiscriminator, GatedFusion
+    SpeciesDiscriminator, GatedFusion, ConcatFusion
 )
 from sklearn.cluster import AgglomerativeClustering
 from pytorch_metric_learning import losses, miners, distances
@@ -218,7 +218,11 @@ def build_datasets_and_loaders(
                                         centered=centered, pooling=pooling, frame_stride=frame_stride)
 
         # X3D_dim=2048, MAE_dim=768 → config["fused_dim"]
-        fusion_model = GatedFusion(2048, 768, config.get("fused_dim", 512)).to(DEVICE)
+        fusion_type = config.get("fusion_type", "gated")  # gated / concat
+        if fusion_type == "concat":
+            fusion_model = ConcatFusion(2048, 768, config.get("fused_dim", 512)).to(DEVICE)
+        else:
+            fusion_model = GatedFusion(2048, 768, config.get("fused_dim", 512)).to(DEVICE)
 
     else:
         raise ValueError(f"Unknown train_mode: {train_mode}")

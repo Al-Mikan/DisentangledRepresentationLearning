@@ -1,5 +1,6 @@
 train_mode: [mae, flow, gated] # mae / flow / gated
 adversarial: ["off","kl", "dann"] # True: GAN方式 / False: 通常正則化
+fusion_type: [gated, concat]
 # flow_preprocessing: ["normal", "centered"] # normal / centered
 # pooling: [true, false]
 # validation_split: [true, false]
