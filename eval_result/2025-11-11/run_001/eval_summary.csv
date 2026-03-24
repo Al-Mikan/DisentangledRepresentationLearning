@@ -1,9 +1,0 @@
-ablation_key,ablation_value,name,train_mode,adversarial,flow_preprocessing,test_ari,test_nmi,model_path
-adversarial,gan,adversarial_gan_best,gated,gan,normal,0.43582918956430466,0.5584845854507391,train_result\2025-11-11\run_001\ablation\adversarial\gan\adversarial_gan_best.pth
-adversarial,kl,adversarial_kl_best,gated,kl,normal,0.42560179439853263,0.5741399447712747,train_result\2025-11-11\run_001\ablation\adversarial\kl\adversarial_kl_best.pth
-adversarial,off,adversarial_off_best,gated,off,normal,0.4208571725102687,0.5514471716148969,train_result\2025-11-11\run_001\ablation\adversarial\off\adversarial_off_best.pth
-flow_preprocessing,centered,flow_preprocessing_centered_best,gated,gan,centered,0.4355648044436244,0.5511843578763966,train_result\2025-11-11\run_001\ablation\flow_preprocessing\centered\flow_preprocessing_centered_best.pth
-flow_preprocessing,normal,flow_preprocessing_normal_best,gated,gan,normal,0.42938313384772353,0.5679013254258201,train_result\2025-11-11\run_001\ablation\flow_preprocessing\normal\flow_preprocessing_normal_best.pth
-train_mode,flow,train_mode_flow_best,flow,gan,normal,0.4360147524609178,0.5838678559875448,train_result\2025-11-11\run_001\ablation\train_mode\flow\train_mode_flow_best.pth
-train_mode,gated,train_mode_gated_best,gated,gan,normal,0.4288478856487592,0.5776773582137332,train_result\2025-11-11\run_001\ablation\train_mode\gated\train_mode_gated_best.pth
-train_mode,mae,train_mode_mae_best,mae,gan,normal,0.08780225428717693,0.27235950300181894,train_result\2025-11-11\run_001\ablation\train_mode\mae\train_mode_mae_best.pth1
